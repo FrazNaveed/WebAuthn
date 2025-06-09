@@ -128,10 +128,17 @@ async function createwallet() {
   const sgxData = await sgxResponse.json();
   console.log("sgxData", sgxData);
 
-  showModalText(`Sgx Data ${JSON.stringify(sgxData.sgxData.data)}`);
+  // showModalText(`Sgx Data ${JSON.stringify(sgxData.sgxData.data)}`);
+  showJSON(sgxData.sgxData.data);
 }
 
 function showModalText(text) {
   modal.querySelector("[data-content]").innerText = text;
   modal.showModal();
+}
+
+function showJSON(data) {
+  const output = document.querySelector("[data-output]");
+  output.textContent =
+    typeof data === "string" ? data : JSON.stringify(data, null, 2);
 }
