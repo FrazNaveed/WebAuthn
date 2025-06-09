@@ -1,32 +1,40 @@
-import { startAuthentication, startRegistration } from "@simplewebauthn/browser"
+import {
+  startAuthentication,
+  startRegistration,
+} from "@simplewebauthn/browser";
 
-const signupButton = document.querySelector("[data-signup]")
-const loginButton = document.querySelector("[data-login]")
-const emailInput = document.querySelector("[data-email]")
-const modal = document.querySelector("[data-modal]")
-const closeButton = document.querySelector("[data-close]")
+const signupButton = document.querySelector("[data-signup]");
+const loginButton = document.querySelector("[data-login]");
+const walletButton = document.querySelector("[data-create-wallet]");
 
-signupButton.addEventListener("click", signup)
-loginButton.addEventListener("click", login)
-closeButton.addEventListener("click", () => modal.close())
+const emailInput = document.querySelector("[data-email]");
+const modal = document.querySelector("[data-modal]");
+const closeButton = document.querySelector("[data-close]");
 
-const SERVER_URL = "http://localhost:3000"
+signupButton.addEventListener("click", signup);
+loginButton.addEventListener("click", login);
+walletButton.addEventListener("click", createwallet);
+
+closeButton.addEventListener("click", () => modal.close());
+
+const SERVER_URL = "http://localhost:3000";
 
 async function signup() {
-  const email = emailInput.value
+  const email = emailInput.value;
 
   // 1. Get challenge from server
   const initResponse = await fetch(
     `${SERVER_URL}/init-register?email=${email}`,
     { credentials: "include" }
-  )
-  const options = await initResponse.json()
+  );
+  const options = await initResponse.json();
   if (!initResponse.ok) {
-    showModalText(options.error)
+    showModalText(options.error);
   }
 
   // 2. Create passkey
-  const registrationJSON = await startRegistration(options)
+  const registrationJSON = await startRegistration(options); // navigator.credentials.create()
+  console.log(registrationJSON);
 
   // 3. Save passkey in DB
   const verifyResponse = await fetch(`${SERVER_URL}/verify-register`, {
@@ -36,33 +44,37 @@ async function signup() {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(registrationJSON),
-  })
+  });
 
-  const verifyData = await verifyResponse.json()
+  const verifyData = await verifyResponse.json();
   if (!verifyResponse.ok) {
-    showModalText(verifyData.error)
+    showModalText(verifyData.error);
   }
   if (verifyData.verified) {
-    showModalText(`Successfully registered ${email}`)
+    showModalText(`Successfully registered ${email}`);
   } else {
-    showModalText(`Failed to register`)
+    showModalText(`Failed to register`);
   }
 }
 
 async function login() {
-  const email = emailInput.value
+  const email = emailInput.value;
 
   // 1. Get challenge from server
   const initResponse = await fetch(`${SERVER_URL}/init-auth?email=${email}`, {
     credentials: "include",
-  })
-  const options = await initResponse.json()
+  });
+  const options = await initResponse.json();
   if (!initResponse.ok) {
-    showModalText(options.error)
+    showModalText(options.error);
   }
 
+  console.log("options", options);
+
   // 2. Get passkey
-  const authJSON = await startAuthentication(options)
+  const authJSON = await startAuthentication(options);
+
+  console.log("when logged in with authenticator, we have response", authJSON);
 
   // 3. Verify passkey with DB
   const verifyResponse = await fetch(`${SERVER_URL}/verify-auth`, {
@@ -72,20 +84,54 @@ async function login() {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(authJSON),
-  })
+  });
 
-  const verifyData = await verifyResponse.json()
+  const verifyData = await verifyResponse.json();
   if (!verifyResponse.ok) {
-    showModalText(verifyData.error)
+    showModalText(verifyData.error);
   }
   if (verifyData.verified) {
-    showModalText(`Successfully logged in ${email}`)
+    showModalText(`Successfully logged in ${email}`);
   } else {
-    showModalText(`Failed to log in`)
+    showModalText(`Failed to log in`);
   }
 }
 
+async function createwallet() {
+  const email = emailInput.value;
+
+  //getting user information
+  let initResponse = await fetch(
+    `${SERVER_URL}/initCreateWallet?email=${email}`,
+    {
+      credentials: "include",
+    }
+  );
+
+  if (!initResponse.ok) {
+    showModalText(options.error);
+  }
+  const options = await initResponse.json();
+  const authJSON = await startAuthentication(options);
+
+  console.log("authJSON", authJSON);
+
+  const sgxResponse = await fetch(`${SERVER_URL}/createWallet`, {
+    credentials: "include",
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(authJSON),
+  });
+
+  const sgxData = await sgxResponse.json();
+  console.log("sgxData", sgxData);
+
+  showModalText(`Sgx Data ${JSON.stringify(sgxData.sgxData.data)}`);
+}
+
 function showModalText(text) {
-  modal.querySelector("[data-content]").innerText = text
-  modal.showModal()
+  modal.querySelector("[data-content]").innerText = text;
+  modal.showModal();
 }
