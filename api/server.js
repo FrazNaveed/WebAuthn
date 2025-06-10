@@ -234,11 +234,11 @@ app.get("/initCreateWallet", async (req, res) => {
   }
 
   try {
-    // const nonceResponse  = await axios.post(
+    // const nonceResponse = await axios.post(
     //   "http://localhost:8080/generateUserNonce",
     //   {
     //     publicKey: passkey.publicKey,
-    //     publicKeyAlgorithm: passkey.algorithm,
+    //     publicKeyAlgorithm: passkey.publicKeyAlgorithm,
     //   },
     //   {
     //     headers: {
@@ -302,11 +302,17 @@ app.post("/createWallet", async (req, res) => {
     return res.status(400).json({ error: "Invalid user" });
   }
 
+  const sgxPayload = {
+    clientDataJSON: req.body.response.clientDataJSON,
+    authenticatorData: req.body.response.authenticatorData,
+    signature: req.body.response.signature,
+  };
+
   try {
     // const sgxData = await axios.post(
     //   "http://localhost:8080/createNewWallet",
     //   {
-    //     response: req.body,
+    //     response: sgxPayload,
     //   },
     //   {
     //     headers: {
@@ -358,6 +364,82 @@ app.post("/createWallet", async (req, res) => {
 });
 
 // create txn endpoints
+app.get("/initCreateTransaction", async (req, res) => {
+  const { email } = req.query;
+
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+
+  const user = await getUserByEmail(email);
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  const passkey = user.passKey;
+  if (!passkey || !passkey.publicKey) {
+    return res
+      .status(404)
+      .json({ error: "No passkey registered for this user" });
+  }
+
+  try {
+    // const nonceResponse = await axios.post(
+    //   "http://localhost:8080/generateUserNonce",
+    //   {
+    //     publicKey: passkey.publicKey,
+    //     publicKeyAlgorithm: passkey.publicKeyAlgorithm,
+    //   },
+    //   {
+    //     headers: {
+    //       "Content-Type": "application/json",
+    //     },
+    //   }
+    // );
+
+    // comment this out
+    const nonceResponse = {
+      data: {
+        nonce: "aGVsbG8gYWJj",
+      },
+    };
+
+    const options = await generateAuthenticationOptions({
+      rpID: RP_ID,
+      allowCredentials: [
+        {
+          id: user.passKey.id,
+          type: "public-key",
+          transports: user.passKey.transports,
+        },
+      ],
+      userVerification: "preferred",
+    });
+
+    options.challenge = nonceResponse.data.nonce;
+
+    res.cookie(
+      "authInfo",
+      JSON.stringify({
+        userId: user.id,
+        challenge: options.challenge,
+      }),
+      {
+        httpOnly: true,
+        maxAge: 60000,
+        secure: true,
+      }
+    );
+
+    res.json(options);
+  } catch (error) {
+    console.error("Error generating nonce:", error);
+    return res.status(500).json({
+      error: "Failed to generate nonce",
+      details: error.response?.data || error.message,
+    });
+  }
+});
 
 app.post("/createTransaction", async (req, res) => {
   const authInfo = JSON.parse(req.cookies.authInfo);
@@ -416,18 +498,13 @@ app.post("/createTransaction", async (req, res) => {
 
     // Prepare the message body with all required fields
     const messageBody = {
+      clientDataJSON: req.body.response.clientDataJSON,
+      authenticatorData: req.body.response.authenticatorData,
+      signature: req.body.response.signature,
       challengeId: 0, // Fixed for now
       account_seal: user.wallet.accountSeal, // From user's wallet
       account_type: 0, // 0 for btc_eth, 1 for solana (hardcoded)
       messageToSign: Array.from(msgHash), // RLP encoded tx messageHash as array
-      // Include original transaction details if needed
-      txDetails: {
-        from: fromAddress,
-        to: toAddress,
-        value: "10", // in wei
-        chainId: chainId,
-        nonce: nonce,
-      },
     };
 
     // const sgxResponse = await axios.post(
@@ -450,16 +527,25 @@ app.post("/createTransaction", async (req, res) => {
     // Mocked SGX response (replace with actual API call)
     const sgxResponse = {
       data: {
+        //mock signature
         signature:
-          "l1t2yzr5eZnR37HZW3mBFbHsUkhf-lftDkKDABz9KPq8LB8dMAmegRggbTRTqSZD7fMkkl6Oi5VWBzKer6jQMgA",
+          "0xc120037804cd0982caea594925b0e0b956c0774a2f70e5c066a494ec79a451c03c69a0276a2753f237fac4e5fbdbe8033e266e290809b0c059b67a4cfc478a9e1c",
+        recid: 27,
       },
     };
 
-    const signature = sgxResponse.data.signature;
-
     if (sgxResponse.data) {
-      const r = signature.slice(0, 32);
-      const s = signature.slice(32, 64);
+      const recid = sgxResponse.data.recid;
+      const signature = sgxResponse.data.signature.startsWith("0x")
+        ? sgxResponse.data.signature
+        : "0x" + sgxResponse.data.signature;
+
+      // 2. Convert to buffer PROPERLY
+      const sigBuffer = Buffer.from(signature.slice(2), "hex"); // Remove 0x before converting
+
+      // 3. Extract r and s (first 64 bytes)
+      const r = "0x" + sigBuffer.subarray(0, 32).toString("hex");
+      const s = "0x" + sigBuffer.subarray(32, 64).toString("hex");
       const v = toBuffer(recid + 35 + chainId * 2);
 
       const signedTx = [
@@ -477,26 +563,27 @@ app.post("/createTransaction", async (req, res) => {
       const rawSignedTx = rlp.encode(signedTx);
       const rawTxHex = "0x" + Buffer.from(rawSignedTx).toString("hex");
 
-      try {
-        const { data } = await axios.post(ALCHEMY_URL, {
-          jsonrpc: "2.0",
-          method: "eth_sendRawTransaction",
-          params: [rawTxHex],
-          id: 2,
-        });
-        console.log("Transaction hash:", data.result);
-      } catch (error) {
-        console.error(
-          "Transaction failed:",
-          error.response?.data || error.message
-        );
-      }
+      // try {
+      //   const { data } = await axios.post(ALCHEMY_URL, {
+      //     jsonrpc: "2.0",
+      //     method: "eth_sendRawTransaction",
+      //     params: [rawTxHex],
+      //     id: 2,
+      //   });
+      //   console.log("Transaction hash:", data.result);
+      // } catch (error) {
+      //   console.error(
+      //     "Transaction failed:",
+      //     error.response?.data || error.message
+      //   );
+      // }
 
       res.clearCookie("authInfo");
 
       return res.json({
         success: true,
-        hash: data.result,
+        // hash: data.result,
+        hash: "0x", //TODO : COMMENT THIS OUT
       });
     } else {
       return res.status(400).json({
