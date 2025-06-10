@@ -6,6 +6,7 @@ import {
 const signupButton = document.querySelector("[data-signup]");
 const loginButton = document.querySelector("[data-login]");
 const walletButton = document.querySelector("[data-create-wallet]");
+const transactionButton = document.querySelector("[data-send-transaction]");
 
 const emailInput = document.querySelector("[data-email]");
 const modal = document.querySelector("[data-modal]");
@@ -14,6 +15,7 @@ const closeButton = document.querySelector("[data-close]");
 signupButton.addEventListener("click", signup);
 loginButton.addEventListener("click", login);
 walletButton.addEventListener("click", createwallet);
+transactionButton.addEventListener("click", sendTransaction);
 
 closeButton.addEventListener("click", () => modal.close());
 
@@ -68,8 +70,6 @@ async function login() {
   if (!initResponse.ok) {
     showModalText(options.error);
   }
-
-  console.log("options", options);
 
   // 2. Get passkey
   const authJSON = await startAuthentication(options);
@@ -130,6 +130,36 @@ async function createwallet() {
 
   // showModalText(`Sgx Data ${JSON.stringify(sgxData.sgxData.data)}`);
   showJSON(sgxData.sgxData.data);
+}
+
+async function sendTransaction() {
+  const email = emailInput.value;
+
+  const initResponse = await fetch(
+    `${SERVER_URL}/initCreateTransaction?email=${email}`,
+    {
+      credentials: "include",
+    }
+  );
+  const options = await initResponse.json();
+  if (!initResponse.ok) {
+    showModalText(options.error);
+  }
+  const authJSON = await startAuthentication(options);
+  console.log("authJSON", authJSON);
+
+  const sgxResponse = await fetch(`${SERVER_URL}/createTransaction`, {
+    credentials: "include",
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(authJSON),
+  });
+
+  if (sgxResponse.success) {
+    showModalText(`Transaction hash: ${sgxResponse.hash}`);
+  }
 }
 
 function showModalText(text) {
