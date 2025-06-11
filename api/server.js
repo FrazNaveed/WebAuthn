@@ -234,25 +234,25 @@ app.get("/initCreateWallet", async (req, res) => {
   }
 
   try {
-    // const nonceResponse = await axios.post(
-    //   "http://localhost:8080/generateUserNonce",
-    //   {
-    //     publicKey: passkey.publicKey,
-    //     publicKeyAlgorithm: passkey.publicKeyAlgorithm,
-    //   },
-    //   {
-    //     headers: {
-    //       "Content-Type": "application/json",
-    //     },
-    //   }
-    // );
+    const nonceResponse = await axios.post(
+      "http://localhost:8080/generateUserNonce",
+      {
+        publicKey: passkey.publicKey,
+        publicKeyAlgorithm: passkey.publicKeyAlgorithm,
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
     // comment this out
-    const nonceResponse = {
-      data: {
-        nonce: "aGVsbG8gYWJj",
-      },
-    };
+    // const nonceResponse = {
+    //   data: {
+    //     nonce: "aGVsbG8gYWJj",
+    //   },
+    // };
 
     const options = await generateAuthenticationOptions({
       rpID: RP_ID,
@@ -309,29 +309,27 @@ app.post("/createWallet", async (req, res) => {
   };
 
   try {
-    // const sgxData = await axios.post(
-    //   "http://localhost:8080/createNewWallet",
-    //   {
-    //     response: sgxPayload,
-    //   },
-    //   {
-    //     headers: {
-    //       "Content-Type": "application/json",
-    //     },
-    //   }
-    // );
+    const sgxData = await axios.post(
+      "http://localhost:8080/createNewWallet",
+      sgxPayload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
-    const sgxData = {
-      data: {
-        "btc-eth-pubkey":
-          "bybcqOsPr-TIXW_CQaoUW9vMRku2Vb_BhYl1flqOQgAFUjSi5MB3ztN_4lo9cuW7VPUWsM2WvLgtL0XXPrBsxAA",
-        "account-seal":
-          "BAACAAAAAABIIPM3auay8gNNO3pLSKd4CwAAAAAAAP8AAAAAAAAAALAkBuTlmwbv3PqKG_LxU6qqqTLO_UoeF4lT-7JsOFtgAAAA8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgAAAAAAAAAAAAAAAAAAAAYAAAAAAAAAAAAAAAAAAAAG8QBpcYM9X1KDQYddxkfoEGqjNsSOMuLLqmPG7woOrOIc32CyHzE6f2943ureOUyMfoo3iYkBlJrLnlPz_vJm-9kCSzrTmlGaNXmxXbt2bSj__L8McTpSizgQyn8ARdlJOFZqUdpfCER11FPWFxM1U",
-        "ethereum-address": "9e468f66eba9ea254e2a390115cb706f7a652da3",
-        "solana-address": "7hxr6vNucgsPX1CaegLSpbxheVKq8FhHYxyEFNpqBiBm",
-        "btc-address": "1NWKzivw9hbe1KSesruoRRAa5JdyXpnpia",
-      },
-    };
+    // const sgxData = {
+    //   data: {
+    //     "btc-eth-pubkey":
+    //       "bybcqOsPr-TIXW_CQaoUW9vMRku2Vb_BhYl1flqOQgAFUjSi5MB3ztN_4lo9cuW7VPUWsM2WvLgtL0XXPrBsxAA",
+    //     "account-seal":
+    //       "BAACAAAAAABIIPM3auay8gNNO3pLSKd4CwAAAAAAAP8AAAAAAAAAALAkBuTlmwbv3PqKG_LxU6qqqTLO_UoeF4lT-7JsOFtgAAAA8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgAAAAAAAAAAAAAAAAAAAAYAAAAAAAAAAAAAAAAAAAAG8QBpcYM9X1KDQYddxkfoEGqjNsSOMuLLqmPG7woOrOIc32CyHzE6f2943ureOUyMfoo3iYkBlJrLnlPz_vJm-9kCSzrTmlGaNXmxXbt2bSj__L8McTpSizgQyn8ARdlJOFZqUdpfCER11FPWFxM1U",
+    //     "ethereum-address": "9e468f66eba9ea254e2a390115cb706f7a652da3",
+    //     "solana-address": "7hxr6vNucgsPX1CaegLSpbxheVKq8FhHYxyEFNpqBiBm",
+    //     "btc-address": "1NWKzivw9hbe1KSesruoRRAa5JdyXpnpia",
+    //   },
+    // };
 
     if (sgxData) {
       // updateUserCounter(user.id, verification.authenticationInfo.newCounter);
@@ -350,7 +348,7 @@ app.post("/createWallet", async (req, res) => {
 
       res.clearCookie("authInfo"); // Clean up
 
-      return res.json({ sgxData });
+      return res.json({ sgxData: {data: sgxData.data} });
     } else {
       return res.status(400).json({
         verified: false,
@@ -384,25 +382,25 @@ app.get("/initCreateTransaction", async (req, res) => {
   }
 
   try {
-    // const nonceResponse = await axios.post(
-    //   "http://localhost:8080/generateUserNonce",
-    //   {
-    //     publicKey: passkey.publicKey,
-    //     publicKeyAlgorithm: passkey.publicKeyAlgorithm,
-    //   },
-    //   {
-    //     headers: {
-    //       "Content-Type": "application/json",
-    //     },
-    //   }
-    // );
+    const nonceResponse = await axios.post(
+      "http://localhost:8080/generateUserNonce",
+      {
+        publicKey: passkey.publicKey,
+        publicKeyAlgorithm: passkey.publicKeyAlgorithm,
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
     // comment this out
-    const nonceResponse = {
-      data: {
-        nonce: "aGVsbG8gYWJj",
-      },
-    };
+    // const nonceResponse = {
+    //   data: {
+    //     nonce: "aGVsbG8gYWJj",
+    //   },
+    // };
 
     const options = await generateAuthenticationOptions({
       rpID: RP_ID,
@@ -453,33 +451,52 @@ app.post("/createTransaction", async (req, res) => {
   }
 
   try {
-    const chainId = 42161; // Arbitrum Mainnet
+    const chainId = 1; // Arbitrum Mainnet
     const ALCHEMY_URL =
-      "https://arb-mainnet.g.alchemy.com/v2/LoyiQqdGjjR-z88vsuA0WofB-5i2r2UD";
+      // "https://arb-mainnet.g.alchemy.com/v2/LoyiQqdGjjR-z88vsuA0WofB-5i2r2UD";
+      "https://eth.llamarpc.com";
 
     // Get user's Ethereum address from wallet
     const fromAddress = "0x" + user.wallet.ethereumAddress;
-    const toAddress = "0xd9103C35Ac62999d66C186Fdab369d9328e3f6cD";
+    const toAddress = "0xAc2F5e28558588a02FD1839Bb7022Df45494061E";
 
-    // Get nonce
-    const { data: nonceData } = await axios.post(ALCHEMY_URL, {
-      jsonrpc: "2.0",
-      method: "eth_getTransactionCount",
-      params: [fromAddress, "latest"],
-      id: 1,
-    });
-    const nonce = parseInt(nonceData.result, 16);
+// Get nonce and gas price in parallel
+const [nonceResponse, gasPriceResponse] = await Promise.all([
+  axios.post(ALCHEMY_URL, {
+    jsonrpc: "2.0",
+    method: "eth_getTransactionCount",
+    params: [fromAddress, "latest"],
+    id: 1,
+  }),
+  axios.post(ALCHEMY_URL, {
+    jsonrpc: "2.0",
+    method: "eth_gasPrice",
+    params: [],
+    id: 2,
+  })
+]);
 
-    // Prepare transaction
-    const txParams = {
-      nonce: toBuffer(nonce),
-      gasPrice: toBuffer(20e9),
-      gasLimit: toBuffer(50000),
-      to: toBuffer(toAddress),
-      value: toBuffer(new BN("10")),
-      data: Buffer.alloc(0),
-    };
+const nonce = parseInt(nonceResponse.data.result, 16);
+const gasPrice = parseInt(gasPriceResponse.data.result, 16);
 
+// Use 110% of current gas price for faster confirmation
+const adjustedGasPrice = Math.floor(gasPrice * 1.1);
+
+console.log("Current gas price:", gasPrice, "wei");
+console.log("Adjusted gas price:", adjustedGasPrice, "wei");
+
+console.log("Current gas price:", gasPrice, "wei");
+console.log("Adjusted gas price:", adjustedGasPrice, "wei");
+
+// Prepare transaction
+const txParams = {
+  nonce: nonce === 0 ? Buffer.alloc(0) : toBuffer(nonce),
+  gasPrice: toBuffer(adjustedGasPrice),
+  gasLimit: toBuffer(50000),
+  to: toBuffer(toAddress),
+  value: toBuffer(new BN("1200000000000000")),
+  data: Buffer.alloc(0),
+};
     // RLP encode transaction
     const rawTx = [
       txParams.nonce,
@@ -496,101 +513,191 @@ app.post("/createTransaction", async (req, res) => {
     const rlpEncoded = rlp.encode(rawTx);
     const msgHash = keccak256(Buffer.from(rlpEncoded));
 
+   const msgHashBase64Url = msgHash
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, ""); 
     // Prepare the message body with all required fields
     const messageBody = {
       clientDataJSON: req.body.response.clientDataJSON,
       authenticatorData: req.body.response.authenticatorData,
       signature: req.body.response.signature,
       challengeId: 0, // Fixed for now
-      account_seal: user.wallet.accountSeal, // From user's wallet
-      account_type: 0, // 0 for btc_eth, 1 for solana (hardcoded)
-      messageToSign: Array.from(msgHash), // RLP encoded tx messageHash as array
+      "account-seal": user.wallet.accountSeal, // From user's wallet
+      "account-type": 0, // 0 for btc_eth, 1 for solana (hardcoded)
+      message: msgHashBase64Url, // RLP encoded tx messageHash as array
     };
 
-    // const sgxResponse = await axios.post(
-    //   "http://localhost:8080/signMessage",
-    //   {
-    //     request: messageBody,
-    //   },
-    //   {
-    //     headers: {
-    //       "Content-Type": "application/json",
-    //     },
-    //     timeout: 5000, // 5 second timeout
-    //   }
-    // );
+    const sgxResponse = await axios.post(
+      "http://localhost:8080/signMessage",
+      messageBody,
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        timeout: 5000, // 5 second timeout
+      }
+    );
 
-    // if (!sgxResponse.data) {
-    //   throw new Error("Empty response from SGX service");
-    // }
-
-    // Mocked SGX response (replace with actual API call)
-    const sgxResponse = {
-      data: {
-        //mock signature
-        signature:
-          "0xc120037804cd0982caea594925b0e0b956c0774a2f70e5c066a494ec79a451c03c69a0276a2753f237fac4e5fbdbe8033e266e290809b0c059b67a4cfc478a9e1c",
-        recid: 27,
-      },
-    };
-
-    if (sgxResponse.data) {
-      const recid = sgxResponse.data.recid;
-      const signature = sgxResponse.data.signature.startsWith("0x")
-        ? sgxResponse.data.signature
-        : "0x" + sgxResponse.data.signature;
-
-      // 2. Convert to buffer PROPERLY
-      const sigBuffer = Buffer.from(signature.slice(2), "hex"); // Remove 0x before converting
-
-      // 3. Extract r and s (first 64 bytes)
-      const r = "0x" + sigBuffer.subarray(0, 32).toString("hex");
-      const s = "0x" + sigBuffer.subarray(32, 64).toString("hex");
-      const v = toBuffer(recid + 35 + chainId * 2);
-
-      const signedTx = [
-        txParams.nonce,
-        txParams.gasPrice,
-        txParams.gasLimit,
-        txParams.to,
-        txParams.value,
-        txParams.data,
-        v,
-        toBuffer(r),
-        toBuffer(s),
-      ];
-
-      const rawSignedTx = rlp.encode(signedTx);
-      const rawTxHex = "0x" + Buffer.from(rawSignedTx).toString("hex");
-
-      // try {
-      //   const { data } = await axios.post(ALCHEMY_URL, {
-      //     jsonrpc: "2.0",
-      //     method: "eth_sendRawTransaction",
-      //     params: [rawTxHex],
-      //     id: 2,
-      //   });
-      //   console.log("Transaction hash:", data.result);
-      // } catch (error) {
-      //   console.error(
-      //     "Transaction failed:",
-      //     error.response?.data || error.message
-      //   );
-      // }
-
-      res.clearCookie("authInfo");
-
-      return res.json({
-        success: true,
-        // hash: data.result,
-        hash: "0x", //TODO : COMMENT THIS OUT
-      });
-    } else {
-      return res.status(400).json({
-        success: false,
-        error: "Verification failed",
-      });
+    if (!sgxResponse.data) {
+      throw new Error("Empty response from SGX service");
     }
+
+
+console.log("HELLO ")
+console.log(sgxResponse)
+
+// Replace the signature parsing section with this:
+
+if (sgxResponse.data) {
+  const signature = sgxResponse.data.signature;
+
+  // Convert base64url to base64
+  const base64Signature = signature.replace(/-/g, '+').replace(/_/g, '/');
+  const paddedSignature = base64Signature + '='.repeat((4 - base64Signature.length % 4) % 4);
+  const sigBuffer = Buffer.from(paddedSignature, 'base64');
+
+  console.log("Signature buffer length:", sigBuffer.length);
+  console.log("sigBuffer", sigBuffer);
+
+  if (sigBuffer.length !== 65) {
+    throw new Error(`Invalid signature length: ${sigBuffer.length}, expected 65`);
+  }
+
+  // Extract r, s, and recovery ID
+  const r = sigBuffer.subarray(0, 32);
+  const s = sigBuffer.subarray(32, 64);
+  const recoveryId = sigBuffer[64];
+
+  console.log("Recovery ID:", recoveryId);
+  console.log("r:", "0x" + r.toString("hex"));
+  console.log("s:", "0x" + s.toString("hex"));
+
+  // Validate recovery ID (should be 0 or 1)
+  if (recoveryId > 1) {
+    throw new Error(`Invalid recovery ID: ${recoveryId}`);
+  }
+
+  // Calculate v for EIP-155 (Ethereum mainnet)
+  // v = recovery_id + 35 + chain_id * 2
+  const v = recoveryId + 35 + chainId * 2;
+  console.log("Calculated v:", v);
+
+  // Create canonical buffers for r and s (remove leading zeros if any)
+  const rBuffer = r[0] === 0 ? r.subarray(1) : r;
+  const sBuffer = s[0] === 0 ? s.subarray(1) : s;
+
+  console.log("txParams.nonce", txParams.nonce);
+
+  const signedTx = [
+    txParams.nonce,
+    txParams.gasPrice,
+    txParams.gasLimit,
+    txParams.to,
+    txParams.value,
+    txParams.data,
+    toBuffer(v),
+    rBuffer,
+    sBuffer,
+  ];
+
+  const rawSignedTx = rlp.encode(signedTx);
+  const rawTxHex = "0x" + Buffer.from(rawSignedTx).toString("hex");
+
+  console.log("Raw transaction hex:", rawTxHex);
+
+  try {
+    const { data } = await axios.post(ALCHEMY_URL, {
+      jsonrpc: "2.0",
+      method: "eth_sendRawTransaction",
+      params: [rawTxHex],
+      id: 2,
+    });
+    console.log("Transaction response:", data);
+    console.log("Transaction hash:", data.result);
+    
+    return res.json({
+      success: true,
+      hash: data.result,
+    });
+  } catch (error) {
+    console.error("Transaction failed:", error.response?.data || error.message);
+    return res.status(400).json({
+      success: false,
+      error: error.response?.data || error.message,
+    });
+  }
+}
+
+    // if (sgxResponse.data) {
+      
+    //   const signature = sgxResponse.data.signature;
+
+    //   // Convert base64url to base64 (replace URL-safe characters)
+    //   const base64Signature = signature.replace(/-/g, '+').replace(/_/g, '/');
+
+    //   // Add padding if needed
+    //   const paddedSignature = base64Signature + '='.repeat((4 - base64Signature.length % 4) % 4);
+
+    //   // Convert to buffer
+    //   const sigBuffer = Buffer.from(paddedSignature, 'base64');
+
+    //   console.log("Signature buffer length:", sigBuffer.length); // Should be 65 bytes
+    //   console.log("sigBuffer", (sigBuffer))
+
+    //   // 2. Extract r, s, and recovery ID from 65-byte signature
+    //   const r = "0x" + sigBuffer.subarray(0, 32).toString("hex");
+    //   const s = "0x" + sigBuffer.subarray(32, 64).toString("hex");
+    //   const recid = sigBuffer[64]; // Last byte is recovery ID
+
+    //   const v = toBuffer(recid + 35 + chainId * 2);
+
+    //   console.log("txParams.nonce", txParams.nonce)
+    //   const signedTx = [
+    //     txParams.nonce,
+    //     txParams.gasPrice,
+    //     txParams.gasLimit,
+    //     txParams.to,
+    //     txParams.value,
+    //     txParams.data,
+    //     v,
+    //     toBuffer(r),
+    //     toBuffer(s),
+    //   ];
+
+    //   const rawSignedTx = rlp.encode(signedTx);
+    //   const rawTxHex = "0x" + Buffer.from(rawSignedTx).toString("hex");
+
+    //   try {
+    //     const { data } = await axios.post(ALCHEMY_URL, {
+    //       jsonrpc: "2.0",
+    //       method: "eth_sendRawTransaction",
+    //       params: [rawTxHex],
+    //       id: 2,
+    //     });
+    //     console.log(data)
+    //     console.log("Transaction hash:", data.result);
+    //   } catch (error) {
+    //     console.error(
+    //       "Transaction failed:",
+    //       error.response?.data || error.message
+    //     );
+    //   }
+
+    //   res.clearCookie("authInfo");
+
+    //   return res.json({
+    //     success: true,
+    //     // hash: data.result,
+    //     hash: "0x", //TODO : COMMENT THIS OUT
+    //   });
+    // } else {
+    //   return res.status(400).json({
+    //     success: false,
+    //     error: "Verification failed",
+    //   });
+    // }
   } catch (error) {
     console.error("Transaction error:", error);
     return res.status(500).json({
