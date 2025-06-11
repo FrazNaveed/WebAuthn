@@ -49,10 +49,21 @@ function updateUserWallet(id, walletData) {
   return null;
 }
 
+function addUserDelegate(id, delegateData) {
+  const user = USERS.find((user) => user.id === id);
+  if (user) {
+    user.delegateData = delegateData;
+    saveUsersToFile();
+    return user;
+  }
+  return null;
+}
+
 module.exports = {
   getUserByEmail,
   getUserById,
   createUser,
   updateUserCounter,
   updateUserWallet,
+  addUserDelegate,
 };

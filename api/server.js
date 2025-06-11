@@ -1,6 +1,6 @@
 const { webcrypto } = require("crypto");
 const axios = require("axios");
-const { keccak256, toBuffer, BN, bufferToHex } = require("ethereumjs-util");
+const { keccak256, BN, bufferToHex } = require("ethereumjs-util"); // toBuffer
 const secp256k1 = require("secp256k1");
 const rlp = require("rlp");
 
@@ -20,6 +20,7 @@ const {
   updateUserCounter,
   getUserById,
   updateUserWallet,
+  addUserDelegate,
 } = require("./db");
 
 const app = express();
@@ -302,6 +303,10 @@ app.post("/createWallet", async (req, res) => {
     return res.status(400).json({ error: "Invalid user" });
   }
 
+  if (user.wallet) {
+    return res.json({ sgxData: {data: user.wallet} });
+  }
+
   const sgxPayload = {
     clientDataJSON: req.body.response.clientDataJSON,
     authenticatorData: req.body.response.authenticatorData,
@@ -439,6 +444,690 @@ app.get("/initCreateTransaction", async (req, res) => {
   }
 });
 
+
+
+
+
+
+
+
+app.post("/enableDelegate3", async (req, res) => {
+  const authInfo = JSON.parse(req.cookies.authInfo);
+  if (!authInfo) {
+    return res.status(400).json({ error: "Authentication info not found" });
+  }
+
+  const user = getUserById(authInfo.userId);
+  if (!user || !user.wallet || user.passKey.id !== req.body.id) {
+    return res.status(400).json({ error: "Invalid user or wallet not found" });
+  }
+
+  try {
+    const chainId = 1; // Arbitrum Mainnet
+    const ALCHEMY_URL =
+      // "https://arb-mainnet.g.alchemy.com/v2/LoyiQqdGjjR-z88vsuA0WofB-5i2r2UD";
+      "https://eth.llamarpc.com";
+      // "http://localhost:8545";
+
+    const fromAddress = "0x" + user.wallet.ethereumAddress;
+    const toAddress = "0xd9103C35Ac62999d66C186Fdab369d9328e3f6cD";
+    
+    // The contract address you want to delegate to
+    const delegateToAddress = "0x8E8e658E22B12ada97B402fF0b044D6A325013C7"; // LightAccount Implementation 2.0
+
+    // Get nonce and gas price in parallel
+    const [nonceResponse, gasPriceResponse] = await Promise.all([
+      axios.post(ALCHEMY_URL, {
+        jsonrpc: "2.0",
+        method: "eth_getTransactionCount",
+        params: [fromAddress, "latest"],
+        id: 1,
+      }),
+      axios.post(ALCHEMY_URL, {
+        jsonrpc: "2.0",
+        method: "eth_gasPrice",
+        params: [],
+        id: 2,
+      })
+    ]);
+
+    const nonce = parseInt(nonceResponse.data.result, 16);
+    const gasPrice = parseInt(gasPriceResponse.data.result, 16);
+    const adjustedGasPrice = Math.floor(gasPrice * 1.1);
+
+    console.log("Current gas price:", gasPrice, "wei");
+    console.log("Adjusted gas price:", adjustedGasPrice, "wei");
+
+    // Step 1: Create the authorization for EIP-7702
+    // This authorizes the EOA to use the code from delegateToAddress
+    const authorizationData = {
+      chainId: chainId,
+      address: delegateToAddress.toLowerCase().replace('0x', ''), // Remove 0x prefix
+      nonce: nonce, // Can be different from tx nonce
+    };
+
+    // Create the authorization message to sign
+    // EIP-7702 authorization format: keccak256(abi.encode(MAGIC, chainId, address, nonce))
+    const MAGIC = "0x05"; // EIP-7702 magic number
+    
+    // Pack the authorization data for signing
+    const authMessage = Buffer.concat([
+      Buffer.from(MAGIC.slice(2), 'hex'),
+      toBuffer(authorizationData.chainId),
+      Buffer.from(authorizationData.address, 'hex'),
+      toBuffer(authorizationData.nonce)
+    ]);
+    
+    const authHash = keccak256(authMessage);
+    const authHashBase64Url = authHash
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+
+    console.log("Authorization hash:", authHash.toString('hex'));
+
+    // Sign the authorization with SGX
+    const authMessageBody = {
+      clientDataJSON: req.body.response.clientDataJSON,
+      authenticatorData: req.body.response.authenticatorData,
+      signature: req.body.response.signature,
+      challengeId: 0,
+      "account-seal": user.wallet.accountSeal,
+      "account-type": 0,
+      message: authHashBase64Url,
+    };
+
+    const authSgxResponse = await axios.post(
+      "http://localhost:8080/signMessage",
+      authMessageBody,
+      {
+        headers: { "Content-Type": "application/json" },
+        timeout: 5000,
+      }
+    );
+
+    if (!authSgxResponse.data) {
+      throw new Error("Empty response from SGX service for authorization");
+    }
+
+    // Parse authorization signature
+    const authSignature = authSgxResponse.data.signature;
+    const authBase64Signature = authSignature.replace(/-/g, '+').replace(/_/g, '/');
+    const authPaddedSignature = authBase64Signature + '='.repeat((4 - authBase64Signature.length % 4) % 4);
+    const authSigBuffer = Buffer.from(authPaddedSignature, 'base64');
+
+    const authR = authSigBuffer.subarray(0, 32);
+    const authS = authSigBuffer.subarray(32, 64);
+    const authRecoveryId = authSigBuffer[64];
+    const authV = authRecoveryId + 35 + chainId * 2;
+
+    console.log("Authorization signature parsed");
+
+    // Step 2: Create the actual transaction
+    const txData = req.body.txData || "0x"; // The actual transaction data
+
+    const txParams = {
+      nonce: nonce === 0 ? Buffer.alloc(0) : toBuffer(nonce),
+      gasPrice: toBuffer(adjustedGasPrice),
+      gasLimit: toBuffer(100000), // Higher gas limit for EIP-7702
+      to: toBuffer(toAddress),
+      value: toBuffer(new BN("10")),
+      data: Buffer.from(txData.slice(2), 'hex'),
+      // EIP-7702 specific: authorization list
+      authorizationList: [{
+        chainId: toBuffer(authorizationData.chainId),
+        address: Buffer.from(authorizationData.address, 'hex'),
+        nonce: toBuffer(authorizationData.nonce),
+        v: toBuffer(authV),
+        r: authR[0] === 0 ? authR.subarray(1) : authR,
+        s: authS[0] === 0 ? authS.subarray(1) : authS,
+      }]
+    };
+
+    
+    // Encode authorization list
+    const encodedAuthList = rlp.encode([
+      [
+        txParams.authorizationList[0].chainId,
+        txParams.authorizationList[0].address,
+        txParams.authorizationList[0].nonce,
+        txParams.authorizationList[0].v,
+        txParams.authorizationList[0].r,
+        txParams.authorizationList[0].s,
+      ]
+    ]);
+
+    const rawDelegateHex = "0x" + encodedAuthList.toString('hex');
+    console.log("DELEGAT :", rawDelegateHex)
+
+    res.status(200).json({delegate: rawDelegateHex});
+
+    try {
+      addUserDelegate(user.id, rawDelegateHex)
+    } catch (err) {
+      console.log(err)
+    }
+
+  } catch (error) {
+    console.error("EIP-7702 Transaction error:", error);
+    return res.status(500).json({
+      error: error.message,
+      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
+  }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+app.post("/enableDelegate", async (req, res) => {
+  const authInfo = JSON.parse(req.cookies.authInfo);
+  if (!authInfo) {
+    return res.status(400).json({ error: "Authentication info not found" });
+  }
+
+  const user = getUserById(authInfo.userId);
+  if (!user || !user.wallet || user.passKey.id !== req.body.id) {
+    return res.status(400).json({ error: "Invalid user or wallet not found" });
+  }
+
+  try {
+    const chainId = 1; // Ethereum Mainnet
+    const ALCHEMY_URL = "https://eth.llamarpc.com";
+
+    const fromAddress = "0x" + user.wallet.ethereumAddress;
+    
+    // The contract address you want to delegate to
+    const delegateToAddress = "0x8E8e658E22B12ada97B402fF0b044D6A325013C7";
+
+    // Get nonce for the authorization
+    const nonceResponse = await axios.post(ALCHEMY_URL, {
+      jsonrpc: "2.0",
+      method: "eth_getTransactionCount",
+      params: [fromAddress, "latest"],
+      id: 1,
+    });
+
+    const authNonce = parseInt(nonceResponse.data.result, 16);
+
+    console.log("Authorization nonce:", authNonce);
+    console.log("Delegate to address:", delegateToAddress);
+
+    // Step 1: Create the authorization for EIP-7702
+    const authorizationData = {
+      chainId: chainId,
+      address: delegateToAddress.toLowerCase().replace('0x', ''),
+      nonce: authNonce,
+    };
+
+    // Create the EIP-7702 authorization message
+    const MAGIC = "0x05";
+    
+    const authMessage = Buffer.concat([
+      Buffer.from(MAGIC.slice(2), 'hex'),
+      toBuffer(authorizationData.chainId),
+      Buffer.from(authorizationData.address, 'hex'),
+      toBuffer(authorizationData.nonce)
+    ]);
+    
+    const authHash = keccak256(authMessage);
+    const authHashBase64Url = authHash
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+
+    console.log("Authorization hash:", authHash.toString('hex'));
+
+    // Sign the authorization with SGX
+    const authMessageBody = {
+      clientDataJSON: req.body.response.clientDataJSON,
+      authenticatorData: req.body.response.authenticatorData,
+      signature: req.body.response.signature,
+      challengeId: 0,
+      "account-seal": user.wallet.accountSeal,
+      "account-type": 0,
+      message: authHashBase64Url,
+    };
+
+    const authSgxResponse = await axios.post(
+      "http://localhost:8080/signMessage",
+      authMessageBody,
+      {
+        headers: { "Content-Type": "application/json" },
+        timeout: 5000,
+      }
+    );
+
+    if (!authSgxResponse.data) {
+      throw new Error("Empty response from SGX service for authorization");
+    }
+
+    // Parse authorization signature
+    const authSignature = authSgxResponse.data.signature;
+    const authBase64Signature = authSignature.replace(/-/g, '+').replace(/_/g, '/');
+    const authPaddedSignature = authBase64Signature + '='.repeat((4 - authBase64Signature.length % 4) % 4);
+    const authSigBuffer = Buffer.from(authPaddedSignature, 'base64');
+
+    const authR = authSigBuffer.subarray(0, 32);
+    const authS = authSigBuffer.subarray(32, 64);
+    const authRecoveryId = authSigBuffer[64];
+    
+    const authV = authRecoveryId;
+
+    console.log("Authorization signature parsed:");
+    console.log("Recovery ID:", authRecoveryId);
+    console.log("v:", authV);
+
+    // Create proper EIP-7702 authorization list entry
+    // Format: [chainId, address, nonce, v, r, s]
+    const authorizationEntry = [
+      toBuffer(authorizationData.chainId),
+      Buffer.from(authorizationData.address, 'hex'),
+      toBuffer(authorizationData.nonce),
+      toBuffer(authV),
+      authR[0] === 0 && authR.length > 1 ? authR.subarray(1) : authR,
+      authS[0] === 0 && authS.length > 1 ? authS.subarray(1) : authS,
+    ];
+
+    // Encode the authorization list
+    const encodedAuthList = rlp.encode([authorizationEntry]);
+    const rawDelegateHex = "0x" + encodedAuthList.toString("hex");
+    
+    console.log("Encoded authorization list:", rawDelegateHex);
+
+    res.status(200).json({delegate: rawDelegateHex});
+
+    try {
+      addUserDelegate(user.id, rawDelegateHex);
+    } catch (err) {
+      console.log("Error saving delegate:", err);
+    }
+
+  } catch (error) {
+    console.error("EIP-7702 Authorization error:", error);
+    return res.status(500).json({
+      error: error.message,
+      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
+  }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const { ethers } = require('ethers');
+
+// Helper function to create canonical buffers (no leading zeros)
+function toBuffer(value) {
+  if (value === 0 || value === '0' || value === '0x0') {
+    return Buffer.alloc(0); // Empty buffer for zero values
+  }
+  
+  if (typeof value === 'string' && value.startsWith('0x')) {
+    value = value.slice(2);
+  }
+  
+  if (typeof value === 'string') {
+    // Remove leading zeros but keep at least one digit
+    value = value.replace(/^0+/, '') || '0';
+    // Ensure even length for hex
+    if (value.length % 2 !== 0) {
+      value = '0' + value;
+    }
+    return Buffer.from(value, 'hex');
+  }
+  
+  if (typeof value === 'number') {
+    if (value === 0) return Buffer.alloc(0);
+    return Buffer.from(value.toString(16).padStart(2, '0'), 'hex');
+  }
+  
+  return Buffer.from(value);
+}
+
+// Helper function specifically for addresses
+function toAddressBuffer(address) {
+  if (!address) return Buffer.alloc(0);
+  
+  // Remove 0x prefix if present
+  const cleanAddress = address.toLowerCase().replace('0x', '');
+  
+  // Validate address length (should be 40 hex characters = 20 bytes)
+  if (cleanAddress.length !== 40) {
+    throw new Error(`Invalid address length: ${cleanAddress.length}, expected 40 hex characters`);
+  }
+  
+  return Buffer.from(cleanAddress, 'hex');
+}
+
+// Helper function specifically for addresses
+function toAddressBuffer(address) {
+  if (!address) return Buffer.alloc(0);
+  
+  // Remove 0x prefix if present
+  const cleanAddress = address.toLowerCase().replace('0x', '');
+  
+  // Validate address length (should be 40 hex characters = 20 bytes)
+  if (cleanAddress.length !== 40) {
+    throw new Error(`Invalid address length: ${cleanAddress.length}, expected 40 hex characters`);
+  }
+  
+  return Buffer.from(cleanAddress, 'hex');
+}
+
+app.post("/eip7702transaction", async (req, res) => {
+  const authInfo = JSON.parse(req.cookies.authInfo);
+  if (!authInfo) {
+    return res.status(400).json({ error: "Authentication info not found" });
+  }
+
+  const user = getUserById(authInfo.userId);
+  if (!user || !user.wallet || user.passKey.id !== req.body.id) {
+    return res.status(400).json({ error: "Invalid user or wallet not found" });
+  }
+
+  try {
+    const chainId = 1; // Ethereum Mainnet
+    const ALCHEMY_URL = "https://eth.llamarpc.com";
+
+    const fromAddress = "0x" + user.wallet.ethereumAddress;
+    const toAddress = fromAddress; // Self-executing transaction
+    
+    const executeTarget = req.body.executeTarget || "0xd9103C35Ac62999d66C186Fdab369d9328e3f6cD";
+    const executeValue = req.body.executeValue || "0";
+    const executeData = req.body.executeData || "0x";
+
+    if (!user.delegateData) {
+      return res.status(400).json({ 
+        error: "No delegate authorization found. Please call /enableDelegate first." 
+      });
+    }
+
+    console.log("Using delegate data:", user.delegateData);
+
+    // Encode the execute function call
+    const executeInterface = new ethers.Interface([
+      "function execute(address target, uint256 value, bytes calldata data)"
+    ]);
+
+    const txData = executeInterface.encodeFunctionData("execute", [
+      executeTarget,
+      executeValue,
+      executeData
+    ]);
+
+    console.log("Encoded execute call:", txData);
+
+    // Get nonce and gas price
+    const [nonceResponse, gasPriceResponse] = await Promise.all([
+      axios.post(ALCHEMY_URL, {
+        jsonrpc: "2.0",
+        method: "eth_getTransactionCount",
+        params: [fromAddress, "latest"],
+        id: 1,
+      }),
+      axios.post(ALCHEMY_URL, {
+        jsonrpc: "2.0",
+        method: "eth_gasPrice",
+        params: [],
+        id: 2,
+      })
+    ]);
+
+    const nonce = parseInt(nonceResponse.data.result, 16);
+    const gasPrice = parseInt(gasPriceResponse.data.result, 16);
+    const adjustedGasPrice = Math.floor(gasPrice * 1.1);
+
+    console.log("Transaction nonce:", nonce);
+    console.log("Adjusted gas price:", adjustedGasPrice, "wei");
+
+    // Fix: Properly parse the delegate data
+    let authorizationList;
+    try {
+      // The delegate data should be a hex string, not comma-separated
+      const cleanDelegateData = user.delegateData.replace(/,/g, ''); // Remove commas
+      const delegateBuffer = Buffer.from(cleanDelegateData.slice(2), 'hex');
+      authorizationList = rlp.decode(delegateBuffer);
+      console.log("Parsed authorization list:", authorizationList);
+    } catch (parseError) {
+      console.error("Failed to parse delegate data:", parseError);
+      return res.status(400).json({ 
+        error: "Invalid delegate data format. Please regenerate delegate authorization." 
+      });
+    }
+
+    // Create EIP-7702 transaction parameters
+    // EIP-7702 transaction structure: [chainId, nonce, maxPriorityFeePerGas, maxFeePerGas, gasLimit, to, value, data, accessList, authorizationList, v, r, s]
+    const txParams = {
+      chainId: toBuffer(chainId),
+      nonce: toBuffer(nonce),
+      maxPriorityFeePerGas: toBuffer(adjustedGasPrice), // Using gasPrice for both since we don't have separate priority fee
+      maxFeePerGas: toBuffer(adjustedGasPrice),
+      gasLimit: toBuffer(200000),
+      to: toAddressBuffer(toAddress),
+      value: toBuffer(0),
+      data: Buffer.from(txData.slice(2), 'hex'),
+      accessList: [], // Empty access list
+      authorizationList: authorizationList
+    };
+
+    console.log("Transaction parameters:");
+    console.log("chainId:", txParams.chainId.toString('hex'));
+    console.log("nonce:", txParams.nonce.toString('hex'));
+    console.log("maxFeePerGas:", txParams.maxFeePerGas.toString('hex'));
+    console.log("gasLimit:", txParams.gasLimit.toString('hex'));
+    console.log("to:", "0x" + txParams.to.toString('hex'));
+    console.log("value:", txParams.value.toString('hex') || '(empty)');
+    console.log("data length:", txParams.data.length);
+
+    // Create EIP-7702 transaction for signing (Type 4)
+    const rawTx = [
+      txParams.chainId,
+      txParams.nonce,
+      txParams.maxPriorityFeePerGas,
+      txParams.maxFeePerGas,
+      txParams.gasLimit,
+      txParams.to,
+      txParams.value,
+      txParams.data,
+      txParams.accessList,
+      txParams.authorizationList
+    ];
+
+    // For EIP-7702, prefix with transaction type 0x04
+    const transactionType = Buffer.from('04', 'hex');
+    const rlpEncoded = rlp.encode(rawTx);
+    const typedTransaction = Buffer.concat([transactionType, rlpEncoded]);
+    const msgHash = keccak256(typedTransaction);
+
+    const msgHashBase64Url = msgHash
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+
+    console.log("Transaction hash to sign:", msgHash.toString('hex'));
+
+    // Sign the transaction hash with SGX
+    const messageBody = {
+      clientDataJSON: req.body.response.clientDataJSON,
+      authenticatorData: req.body.response.authenticatorData,
+      signature: req.body.response.signature,
+      challengeId: 0,
+      "account-seal": user.wallet.accountSeal,
+      "account-type": 0,
+      message: msgHashBase64Url,
+    };
+
+    const sgxResponse = await axios.post(
+      "http://localhost:8080/signMessage",
+      messageBody,
+      {
+        headers: { "Content-Type": "application/json" },
+        timeout: 5000,
+      }
+    );
+
+    if (!sgxResponse.data) {
+      throw new Error("Empty response from SGX service");
+    }
+
+    console.log("SGX Response:", sgxResponse.data);
+
+    // Parse the transaction signature
+    const signature = sgxResponse.data.signature;
+    const base64Signature = signature.replace(/-/g, '+').replace(/_/g, '/');
+    const paddedSignature = base64Signature + '='.repeat((4 - base64Signature.length % 4) % 4);
+    const sigBuffer = Buffer.from(paddedSignature, 'base64');
+
+    if (sigBuffer.length !== 65) {
+      throw new Error(`Invalid signature length: ${sigBuffer.length}, expected 65`);
+    }
+
+    const r = sigBuffer.subarray(0, 32);
+    const s = sigBuffer.subarray(32, 64);
+    const recoveryId = sigBuffer[64];
+
+    console.log("Transaction signature components:");
+    console.log("Recovery ID:", recoveryId);
+    console.log("r:", "0x" + r.toString("hex"));
+    console.log("s:", "0x" + s.toString("hex"));
+
+    // For EIP-7702, we need to calculate the parity bit
+    // v = recovery_id (0 or 1)
+    const v = recoveryId;
+    console.log("EIP-7702 v value:", v);
+
+    // Create canonical buffers for r and s
+    const rBuffer = r[0] === 0 && r.length > 1 ? r.subarray(1) : r;
+    const sBuffer = s[0] === 0 && s.length > 1 ? s.subarray(1) : s;
+
+    // Create the final signed EIP-7702 transaction
+    const signedTx = [
+      txParams.chainId,
+      txParams.nonce,
+      txParams.maxPriorityFeePerGas,
+      txParams.maxFeePerGas,
+      txParams.gasLimit,
+      txParams.to,
+      txParams.value,
+      txParams.data,
+      txParams.accessList,
+      txParams.authorizationList,
+      toBuffer(v),
+      rBuffer,
+      sBuffer,
+    ];
+
+    const rawSignedTx = rlp.encode(signedTx);
+    const typedSignedTx = Buffer.concat([transactionType, rawSignedTx]);
+    const rawTxHex = "0x" + typedSignedTx.toString("hex");
+
+    console.log("Raw EIP-7702 transaction hex:", rawTxHex);
+    console.log("Transaction length:", rawTxHex.length);
+
+    // Send the transaction
+    try {
+      const { data } = await axios.post(ALCHEMY_URL, {
+        jsonrpc: "2.0",
+        method: "eth_sendRawTransaction",
+        params: [rawTxHex],
+        id: 3,
+      });
+
+      console.log("Transaction response:", data);
+
+      if (data.error) {
+        console.error("Transaction failed:", data.error);
+        return res.status(400).json({
+          success: false,
+          error: data.error.message || data.error,
+          code: data.error.code,
+          rawTx: rawTxHex
+        });
+      }
+
+      const txHash = data.result;
+      console.log("✅ EIP-7702 Transaction hash:", txHash);
+
+      return res.json({
+        success: true,
+        hash: txHash,
+        type: "EIP-7702",
+        from: fromAddress,
+        to: toAddress,
+        executeTarget: executeTarget,
+        executeValue: executeValue,
+        executeData: executeData,
+        gasUsed: "200000",
+        authorizationUsed: true,
+        transactionType: "execute_function"
+      });
+
+    } catch (sendError) {
+      console.error("Transaction send failed:", sendError.response?.data || sendError.message);
+      return res.status(400).json({
+        success: false,
+        error: sendError.response?.data || sendError.message,
+        rawTx: rawTxHex
+      });
+    }
+
+  } catch (error) {
+    console.error("EIP-7702 Transaction error:", error);
+    return res.status(500).json({
+      error: error.message,
+      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
+  }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 app.post("/createTransaction", async (req, res) => {
   const authInfo = JSON.parse(req.cookies.authInfo);
   if (!authInfo) {
@@ -455,6 +1144,7 @@ app.post("/createTransaction", async (req, res) => {
     const ALCHEMY_URL =
       // "https://arb-mainnet.g.alchemy.com/v2/LoyiQqdGjjR-z88vsuA0WofB-5i2r2UD";
       "https://eth.llamarpc.com";
+      // "http://localhost:8545";
 
     // Get user's Ethereum address from wallet
     const fromAddress = "0x" + user.wallet.ethereumAddress;
@@ -494,7 +1184,8 @@ const txParams = {
   gasPrice: toBuffer(adjustedGasPrice),
   gasLimit: toBuffer(50000),
   to: toBuffer(toAddress),
-  value: toBuffer(new BN("1200000000000000")),
+  // value: toBuffer(new BN("1200000000000000")),
+  value: toBuffer(new BN("12")),
   data: Buffer.alloc(0),
 };
     // RLP encode transaction

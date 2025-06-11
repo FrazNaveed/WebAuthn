@@ -7,6 +7,8 @@ const signupButton = document.querySelector("[data-signup]");
 const loginButton = document.querySelector("[data-login]");
 const walletButton = document.querySelector("[data-create-wallet]");
 const transactionButton = document.querySelector("[data-send-transaction]");
+const enableDelegateButton = document.querySelector("[data-enable-delegate]");
+const eipTxButton = document.querySelector("[data-eip-transaction]");
 
 const emailInput = document.querySelector("[data-email]");
 const modal = document.querySelector("[data-modal]");
@@ -16,6 +18,8 @@ signupButton.addEventListener("click", signup);
 loginButton.addEventListener("click", login);
 walletButton.addEventListener("click", createwallet);
 transactionButton.addEventListener("click", sendTransaction);
+enableDelegateButton.addEventListener("click", enableDelegate);
+eipTxButton.addEventListener("click", eipTx);
 
 closeButton.addEventListener("click", () => modal.close());
 
@@ -130,6 +134,68 @@ async function createwallet() {
 
   // showModalText(`Sgx Data ${JSON.stringify(sgxData.sgxData.data)}`);
   showJSON(sgxData.sgxData.data);
+}
+
+async function enableDelegate() {
+  const email = emailInput.value;
+
+  const initResponse = await fetch(
+    `${SERVER_URL}/initCreateTransaction?email=${email}`,
+    {
+      credentials: "include",
+    }
+  );
+  const options = await initResponse.json();
+  if (!initResponse.ok) {
+    showModalText(options.error);
+  }
+  const authJSON = await startAuthentication(options);
+  console.log("authJSON", authJSON);
+
+  const sgxResponse = await fetch(`${SERVER_URL}/enableDelegate`, {
+    credentials: "include",
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(authJSON),
+  });
+
+  if (sgxResponse.success) {
+    showModalText(`Transaction hash: ${sgxResponse.hash}`);
+  }
+
+}
+
+async function eipTx() {
+  const email = emailInput.value;
+
+  const initResponse = await fetch(
+    `${SERVER_URL}/initCreateTransaction?email=${email}`,
+    {
+      credentials: "include",
+    }
+  );
+  const options = await initResponse.json();
+  if (!initResponse.ok) {
+    showModalText(options.error);
+  }
+  const authJSON = await startAuthentication(options);
+  console.log("authJSON", authJSON);
+
+  const sgxResponse = await fetch(`${SERVER_URL}/eip7702transaction`, {
+    credentials: "include",
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(authJSON),
+  });
+
+  if (sgxResponse.success) {
+    showModalText(`Transaction hash: ${sgxResponse.hash}`);
+  }
+
 }
 
 async function sendTransaction() {
