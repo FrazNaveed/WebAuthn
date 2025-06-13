@@ -177,5 +177,22 @@
       ]
     },
     "wallet": null
+  },
+  {
+    "id": "HFjjC3hj_VO7ORvVtmKBoR6_GZkfUXMGwKuGcTpLpw4",
+    "email": "HAMZA",
+    "passKey": {
+      "id": "wpy-rXWRj-7fLN_ADDWK8A",
+      "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE3EzTns_hZQM5_HwO2P6Aa9oisk9H9iFBNf9uLjAw81ZeOdaAgFsdwj3tvRjOyxAYHuj09h57dG_Q4mppY79U_Q",
+      "publicKeyAlgorithm": -7,
+      "counter": 0,
+      "deviceType": "multiDevice",
+      "backedUp": true,
+      "transport": [
+        "hybrid",
+        "internal"
+      ]
+    },
+    "wallet": null
   }
 ]

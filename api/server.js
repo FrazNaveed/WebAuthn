@@ -308,7 +308,7 @@ app.post("/createWallet", async (req, res) => {
   }
 
   if (user.wallet) {
-    return res.json({ sgxData: {data: user.wallet} });
+    return res.json({ sgxData: { data: user.wallet } });
   }
 
   const sgxPayload = {
@@ -357,7 +357,7 @@ app.post("/createWallet", async (req, res) => {
 
       res.clearCookie("authInfo"); // Clean up
 
-      return res.json({ sgxData: {data: sgxData.data} });
+      return res.json({ sgxData: { data: sgxData.data } });
     } else {
       return res.status(400).json({
         verified: false,
@@ -471,11 +471,11 @@ app.post("/enableDelegate3", async (req, res) => {
     const ALCHEMY_URL =
       // "https://arb-mainnet.g.alchemy.com/v2/LoyiQqdGjjR-z88vsuA0WofB-5i2r2UD";
       "https://eth.llamarpc.com";
-      // "http://localhost:8545";
+    // "http://localhost:8545";
 
     const fromAddress = "0x" + user.wallet.ethereumAddress;
     const toAddress = "0xd9103C35Ac62999d66C186Fdab369d9328e3f6cD";
-    
+
     // The contract address you want to delegate to
     const delegateToAddress = "0x8E8e658E22B12ada97B402fF0b044D6A325013C7"; // LightAccount Implementation 2.0
 
@@ -513,7 +513,7 @@ app.post("/enableDelegate3", async (req, res) => {
     // Create the authorization message to sign
     // EIP-7702 authorization format: keccak256(abi.encode(MAGIC, chainId, address, nonce))
     const MAGIC = "0x05"; // EIP-7702 magic number
-    
+
     // Pack the authorization data for signing
     const authMessage = Buffer.concat([
       Buffer.from(MAGIC.slice(2), 'hex'),
@@ -521,7 +521,7 @@ app.post("/enableDelegate3", async (req, res) => {
       Buffer.from(authorizationData.address, 'hex'),
       toBuffer(authorizationData.nonce)
     ]);
-    
+
     const authHash = keccak256(authMessage);
     const authHashBase64Url = authHash
       .toString("base64")
@@ -589,7 +589,7 @@ app.post("/enableDelegate3", async (req, res) => {
       }]
     };
 
-    
+
     // Encode authorization list
     const encodedAuthList = rlp.encode([
       [
@@ -605,7 +605,7 @@ app.post("/enableDelegate3", async (req, res) => {
     const rawDelegateHex = "0x" + toBuffer(encodedAuthList).toString('hex');
     console.log("DELEGAT :", rawDelegateHex)
 
-    res.status(200).json({delegate: rawDelegateHex});
+    res.status(200).json({ delegate: rawDelegateHex });
 
     try {
       addUserDelegate(user.id, rawDelegateHex)
@@ -659,7 +659,7 @@ app.post("/enableDelegate", async (req, res) => {
     const ALCHEMY_URL = "https://eth.llamarpc.com";
 
     const fromAddress = "0x" + user.wallet.ethereumAddress;
-    
+
     // The contract address you want to delegate to
     const delegateToAddress = "0x8E8e658E22B12ada97B402fF0b044D6A325013C7";
 
@@ -685,14 +685,14 @@ app.post("/enableDelegate", async (req, res) => {
 
     // Create the EIP-7702 authorization message
     const MAGIC = "0x05";
-    
+
     const authMessage = Buffer.concat([
       Buffer.from(MAGIC.slice(2), 'hex'),
       toBuffer(authorizationData.chainId),
       Buffer.from(authorizationData.address, 'hex'),
       toBuffer(authorizationData.nonce)
     ]);
-    
+
     const authHash = keccak256(authMessage);
     const authHashBase64Url = authHash
       .toString("base64")
@@ -735,7 +735,7 @@ app.post("/enableDelegate", async (req, res) => {
     const authR = authSigBuffer.subarray(0, 32);
     const authS = authSigBuffer.subarray(32, 64);
     const authRecoveryId = authSigBuffer[64];
-    
+
     const authV = authRecoveryId;
 
     console.log("Authorization signature parsed:");
@@ -756,10 +756,10 @@ app.post("/enableDelegate", async (req, res) => {
     // Use the exact buffer format required
     const encodedAuthList = rlp.encode([authorizationEntry]);
     const rawDelegateHex = "0x" + encodedAuthList.toString("hex");
-    
+
     console.log("Encoded authorization list:", rawDelegateHex);
 
-    res.status(200).json({delegate: rawDelegateHex});
+    res.status(200).json({ delegate: rawDelegateHex });
 
     try {
       addUserDelegate(user.id, rawDelegateHex);
@@ -793,17 +793,18 @@ app.post("/enableDelegate", async (req, res) => {
 
 
 const { ethers } = require('ethers');
+const { Console } = require("console");
 
 // Helper function to create canonical buffers (no leading zeros)
 // function toBuffer(value) {
 //   if (value === 0 || value === '0' || value === '0x0') {
 //     return Buffer.alloc(0); // Empty buffer for zero values
 //   }
-  
+
 //   if (typeof value === 'string' && value.startsWith('0x')) {
 //     value = value.slice(2);
 //   }
-  
+
 //   if (typeof value === 'string') {
 //     // Remove leading zeros but keep at least one digit
 //     value = value.replace(/^0+/, '') || '0';
@@ -813,30 +814,48 @@ const { ethers } = require('ethers');
 //     }
 //     return Buffer.from(value, 'hex');
 //   }
-  
+
 //   if (typeof value === 'number') {
 //     if (value === 0) return Buffer.alloc(0);
 //     return Buffer.from(value.toString(16).padStart(2, '0'), 'hex');
 //   }
-  
+
 //   return Buffer.from(value);
 // }
 
 function toBuffer(value) {
-  if (value === 0 || value === '0' || value === '0x0') {
+  if (value === null || value === undefined) {
     return Buffer.alloc(0);
   }
-  
-  if (typeof value === 'string' && value.startsWith('0x')) {
-    return Buffer.from(value.slice(2), 'hex');
+
+  if (Buffer.isBuffer(value)) {
+    return value;
   }
-  
+
+  if (typeof value === 'string') {
+    if (value.startsWith('0x')) {
+      const hex = value.slice(2);
+      if (hex.length === 0) return Buffer.alloc(0);
+      // Remove leading zeros for canonical encoding
+      const cleanHex = hex.replace(/^0+/, '') || '0';
+      return Buffer.from(cleanHex.length % 2 ? '0' + cleanHex : cleanHex, 'hex');
+    }
+    return Buffer.from(value);
+  }
+
   if (typeof value === 'number') {
-    const hex = value.toString(16);
-    return Buffer.from(hex.length % 2 ? '0' + hex : hex, 'hex');
+    if (value === 0) return Buffer.alloc(0);
+    return Buffer.from(value.toString(16).padStart(value.toString(16).length % 2 ? value.toString(16).length + 1 : value.toString(16).length, '0'), 'hex');
   }
-  
-  return Buffer.from(value);
+
+  if (BN.isBN(value)) {
+    if (value.isZero()) return Buffer.alloc(0);
+    return Buffer.from(value.toString(16, 'hex'), 'hex');
+  }
+
+  console.log(Buffer.from(value).toString("hex"))
+  return Buffer.from(value).toString("hex");
+  throw new Error(`Cannot convert ${typeof value} to buffer`);
 }
 
 // Dedicated address converter
@@ -856,35 +875,53 @@ function bigIntToBuffer(value) {
 // Helper function specifically for addresses
 // function toAddressBuffer(address) {
 //   if (!address) return Buffer.alloc(0);
-  
+
 //   // Remove 0x prefix if present
 //   const cleanAddress = address.toLowerCase().replace('0x', '');
-  
+
 //   // Validate address length (should be 40 hex characters = 20 bytes)
 //   if (cleanAddress.length !== 40) {
 //     throw new Error(`Invalid address length: ${cleanAddress.length}, expected 40 hex characters`);
 //   }
-  
+
 //   return Buffer.from(cleanAddress, 'hex');
 // }
 
 // // Helper function specifically for addresses
 // function toAddressBuffer(address) {
 //   if (!address) return Buffer.alloc(0);
-  
+
 //   // Remove 0x prefix if present
 //   const cleanAddress = address.toLowerCase().replace('0x', '');
-  
+
 //   // Validate address length (should be 40 hex characters = 20 bytes)
 //   if (cleanAddress.length !== 40) {
 //     throw new Error(`Invalid address length: ${cleanAddress.length}, expected 40 hex characters`);
 //   }
-  
+
 //   return Buffer.from(cleanAddress, 'hex');
 // }
 
-
 app.post("/eip7702transaction", async (req, res) => {
+  const toCanonicalHex = (value) => {
+    if (value === 0 || value === '0' || value === '0x0' || value === '0x') {
+      return '0x'; // Empty for zero values to avoid leading zeros
+    }
+
+    let hex;
+    if (typeof value === 'string' && value.startsWith('0x')) {
+      hex = value.slice(2);
+    } else if (typeof value === 'number') {
+      hex = value.toString(16);
+    } else {
+      hex = value.toString();
+    }
+
+    // Remove leading zeros but keep at least one digit
+    hex = hex.replace(/^0+/, '') || '0';
+
+    return '0x' + hex;
+  };
   const authInfo = JSON.parse(req.cookies.authInfo);
   if (!authInfo) {
     return res.status(400).json({ error: "Authentication info not found" });
@@ -901,12 +938,318 @@ app.post("/eip7702transaction", async (req, res) => {
 
     // Get user's Ethereum address from wallet
     const fromAddress = "0x" + user.wallet.ethereumAddress;
-    
+    console.log(fromAddress)
+    const [nonceResponse, gasPriceResponse, maxFeeResponse] = await Promise.all([
+      axios.post(ALCHEMY_URL, {
+        jsonrpc: "2.0",
+        method: "eth_getTransactionCount",
+        params: [fromAddress, "latest"],
+        id: 1,
+      }),
+      axios.post(ALCHEMY_URL, {
+        jsonrpc: "2.0",
+        method: "eth_gasPrice",
+        params: [],
+        id: 2,
+      }),
+      // For EIP-1559 transactions, we need to get base fee
+      axios.post(ALCHEMY_URL, {
+        jsonrpc: "2.0",
+        method: "eth_getBlockByNumber",
+        params: ["latest", false],
+        id: 3,
+      })
+    ]);
+
+    const currentNonce = parseInt(nonceResponse.data.result, 16);
+    const gasPrice = parseInt(gasPriceResponse.data.result, 16);
+    const baseFee = parseInt(maxFeeResponse.data.result.baseFeePerGas, 16);
+    // Define contract interface with execute function signature
+    const batchInterface = new ethers.Interface([
+      "function execute(address,uint256,bytes)"
+    ]);
+
+    // Define sample transaction parameters for batch execution
+    const calls = [
+      {
+        data: "0x",
+        to: "0xAC93939D0292aE9A536e34944853bc8047461420",
+        value: ethers.parseEther("0.00001")
+      }
+    ];
+
+    // Encode the execute function call with parameters
+    const calldata = batchInterface.encodeFunctionData("execute", [
+      calls[0].to,    // address parameter
+      calls[0].value, // uint256 parameter  
+      calls[0].data   // bytes parameter
+    ]);
+
+
+
     // EIP-7702 specific parameters
-    const delegationAddress = "0xaCacbf32631D9C3FFb1874E48359fbC532A3ce56";
-    const toAddress = req.body.to || "0xAc2F5e28558588a02FD1839Bb7022Df45494061E";
-    const value = req.body.value || "0x0"; // Default to 0 value
-    const calldata = req.body.calldata || "0x"; // Default to empty calldata
+    const delegationAddress = "0x4Cd241E8d1510e30b2076397afc7508Ae59C66c9";
+    const toAddress = fromAddress;
+    const value = req.body.value || "0x"; // Default to 0 value
+    // const calldata = req.body.calldata || "0x"; // Default to empty calldata
+    const accessList = req.body.accessList || []; // Default to empty access list array
+
+    if (!delegationAddress) {
+      return res.status(400).json({ error: "delegationAddress is required for EIP-7702 transactions" });
+    }
+
+
+    // Prepare the message body for SGX service
+    const messageBody = {
+      clientDataJSON: req.body.response.clientDataJSON,
+      authenticatorData: req.body.response.authenticatorData,
+      signature: req.body.response.signature,
+      "account-seal": user.wallet.accountSeal,
+      "account-type": 0, // 0 for BTC/ETH, 1 for Solana
+
+      // EIP-7702 specific fields (as hex strings with canonical encoding)
+      chainId: toCanonicalHex(chainId),
+      delegationAddress: toCanonicalHex(delegationAddress),
+      nonce: toCanonicalHex(currentNonce + 1),
+    };
+
+
+
+    const sgxResponse = await axios.post(
+      "http://localhost:8080/eip7702txsign",
+      messageBody,
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        timeout: 10000, // 10 second timeout for EIP-7702 transactions
+      }
+    );
+
+    // Working example with ethers v6
+    console.log(sgxResponse.data)
+
+    const [_chainId, _delegateToAddress, _nonce] = ethers.decodeRlp(["0x", sgxResponse.data.rlp_encoded_auth_list.slice(2)].join(""));
+
+    const base64Signature = sgxResponse.data.auth_list_signa.replace(/-/g, '+').replace(/_/g, '/');
+    const paddedSignature = base64Signature + '='.repeat((4 - base64Signature.length % 4) % 4);
+    const sigBuffer = Buffer.from(paddedSignature, 'base64');
+
+    console.log("Signature buffer length:", sigBuffer.length);
+    console.log("sigBuffer", sigBuffer);
+
+    if (sigBuffer.length !== 65) {
+      throw new Error(`Invalid signature length: ${sigBuffer.length}, expected 65`);
+    }
+
+    // Extract r, s, and recovery ID
+    const r = sigBuffer.subarray(0, 32);
+    const s = sigBuffer.subarray(32, 64);
+    const recoveryId = sigBuffer[64];
+
+    console.log("Recovery ID:", recoveryId);
+    console.log("r:", "0x" + r.toString("hex"));
+    console.log("s:", "0x" + s.toString("hex"));
+
+    const authorizationData = {
+      chainId: _chainId,
+      address: _delegateToAddress,
+      nonce: _nonce,
+      yParity: recoveryId == 0 ? '0x' : '0x01',
+      r: r,
+      s: s
+    }
+
+    // const provider = new ethers.JsonRpcApiProvider(ALCHEMY_URL)
+    const provider = new ethers.JsonRpcProvider(
+      ALCHEMY_URL,
+      {
+        chainId: 1,
+        name: 'mainnet'
+      }
+    );
+    const feeData = await provider.getFeeData()
+
+    const txData = [
+      authorizationData.chainId,
+      ethers.toBeHex(currentNonce),
+      ethers.toBeHex(feeData.maxPriorityFeePerGas),
+      ethers.toBeHex(feeData.maxFeePerGas),
+      ethers.toBeHex(1000000),
+      fromAddress,
+      '0x',
+      calldata,
+      [],
+      [
+        [
+          authorizationData.chainId,
+          authorizationData.address,
+          authorizationData.nonce,
+          authorizationData.yParity,
+          authorizationData.r,
+          authorizationData.s
+        ]
+      ]
+    ];
+
+
+    const estimatedGasLimit = await estimateGasLimit(
+      provider,
+      txData,
+      authorizationData,
+      calldata,
+      fromAddress,
+    );
+
+    // // Update your txData with the estimated gas limit
+    txData[4] = ethers.toBeHex(estimatedGasLimit);
+
+    const encodedTxData = ethers.concat([
+      '0x04', // Transaction type identifier
+      ethers.encodeRlp(txData)
+    ]);
+
+    console.log(encodedTxData)
+
+
+    const txDataHash = ethers.keccak256(encodedTxData);
+    console.log(txDataHash)
+
+
+    const msgHashBase64Url = txDataHash
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    // Prepare the message body with all required fields
+    const messageBody2 = {
+      clientDataJSON: req.body.response.clientDataJSON,
+      authenticatorData: req.body.response.authenticatorData,
+      signature: req.body.response.signature,
+      challengeId: 0, // Fixed for now
+      "account-seal": user.wallet.accountSeal, // From user's wallet
+      "account-type": 0, // 0 for btc_eth, 1 for solana (hardcoded)
+      message: msgHashBase64Url, // RLP encoded tx messageHash as array
+    };
+
+    const sgxResponse2 = await axios.post(
+      "http://localhost:8080/signMessage",
+      messageBody2,
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        timeout: 5000, // 5 second timeou
+      }
+    );
+    if (sgxResponse2.data) {
+      const signature = sgxResponse2.data.signature;
+
+      // Convert base64url to base64
+      const base64Signature = signature.replace(/-/g, '+').replace(/_/g, '/');
+      const paddedSignature = base64Signature + '='.repeat((4 - base64Signature.length % 4) % 4);
+      const sigBuffer = Buffer.from(paddedSignature, 'base64');
+
+      console.log("Signature buffer length:", sigBuffer.length);
+      console.log("sigBuffer", sigBuffer);
+
+      if (sigBuffer.length !== 65) {
+        throw new Error(`Invalid signature length: ${sigBuffer.length}, expected 65`);
+      }
+
+      // Extract r, s, and recovery ID
+      const r = sigBuffer.subarray(0, 32);
+      const s = sigBuffer.subarray(32, 64);
+      const recoveryId = sigBuffer[64];
+
+      console.log("Recovery ID:", recoveryId);
+      console.log("r:", "0x" + r.toString("hex"));
+      console.log("s:", "0x" + s.toString("hex"));
+
+      // Validate recovery ID (should be 0 or 1)
+      if (recoveryId > 1) {
+        throw new Error(`Invalid recovery ID: ${recoveryId}`);
+      }
+    
+        const signedTx = ethers.hexlify(ethers.concat([
+          '0x04',
+          ethers.encodeRlp([
+            ...txData,
+            recoveryId == 0 ? '0x' : '0x01',
+            r,
+            s
+          ])
+        ]));
+
+
+
+    const tx = await provider.send('eth_sendRawTransaction', [signedTx]);
+
+    console.log('tx sent: ', tx);
+
+    }
+
+
+    // Get user's Ethereum address from wallet
+  } catch (e) {
+
+
+    console.log(e)
+    console.log("ERRORRRRED!!!")
+  }
+})
+
+
+app.post("/eip7702transaction2", async (req, res) => {
+
+  const authInfo = JSON.parse(req.cookies.authInfo);
+  if (!authInfo) {
+    return res.status(400).json({ error: "Authentication info not found" });
+  }
+
+  const user = getUserById(authInfo.userId);
+  if (!user || !user.wallet || user.passKey.id !== req.body.id) {
+    return res.status(400).json({ error: "Invalid user or wallet not found" });
+  }
+
+  try {
+    console.log("IN HERE 1")
+    const chainId = req.body.chainId || 1; // Default to Ethereum Mainnet
+    const ALCHEMY_URL = "https://mainnet.infura.io/v3/00904e37a5644a96be0e7ce44f71ba0f";
+
+    // Get user's Ethereum address from wallet
+    const fromAddress = "0x" + user.wallet.ethereumAddress;
+
+    // Define contract interface with execute function signature
+    const batchInterface = new ethers.Interface([
+      "function execute(address,uint256,bytes)"
+    ]);
+
+    // Define sample transaction parameters for batch execution
+    const calls = [
+      {
+        data: "0x",
+        to: "0xAC93939D0292aE9A536e34944853bc8047461420",
+        value: ethers.parseEther("0.00001")
+      }
+    ];
+
+    console.log("IN HERE 2")
+    // Encode the execute function call with parameters
+    const calldata = batchInterface.encodeFunctionData("execute", [
+      calls[0].to,    // address parameter
+      calls[0].value, // uint256 parameter  
+      calls[0].data   // bytes parameter
+    ]);
+
+
+
+    console.log("IN HERE 3")
+    // EIP-7702 specific parameters
+    const delegationAddress = "0x4Cd241E8d1510e30b2076397afc7508Ae59C66c9";
+    const toAddress = req.body.to || "0x79676b49321b46ef70d5a74b7306becd74351313";
+    const value = req.body.value || "0x"; // Default to 0 value
+    // const calldata = req.body.calldata || "0x"; // Default to empty calldata
     const accessList = req.body.accessList || []; // Default to empty access list array
 
     if (!delegationAddress) {
@@ -939,12 +1282,12 @@ app.post("/eip7702transaction", async (req, res) => {
     const currentNonce = parseInt(nonceResponse.data.result, 16);
     const gasPrice = parseInt(gasPriceResponse.data.result, 16);
     const baseFee = parseInt(maxFeeResponse.data.result.baseFeePerGas, 16);
-    
+
     // Calculate EIP-1559 gas parameters
     const maxPriorityFeePerGas = Math.floor(gasPrice * 0.5); // 10% tip
     const maxFeePerGas = Math.floor(baseFee * 2 + maxPriorityFeePerGas); // 2x base fee + tip
     const gasLimit = req.body.gasLimit || 100000; // Higher limit for EIP-7702 transactions
-    
+
     // Transaction nonce (can be different from current nonce for batching)
     const txNonce = req.body.nonce !== undefined ? parseInt(req.body.nonce, 16) : currentNonce;
 
@@ -965,7 +1308,7 @@ app.post("/eip7702transaction", async (req, res) => {
       if (value === 0 || value === '0' || value === '0x0' || value === '0x') {
         return '0x'; // Empty for zero values to avoid leading zeros
       }
-      
+
       let hex;
       if (typeof value === 'string' && value.startsWith('0x')) {
         hex = value.slice(2);
@@ -974,10 +1317,10 @@ app.post("/eip7702transaction", async (req, res) => {
       } else {
         hex = value.toString();
       }
-      
+
       // Remove leading zeros but keep at least one digit
       hex = hex.replace(/^0+/, '') || '0';
-      
+
       return '0x' + hex;
     };
 
@@ -986,7 +1329,7 @@ app.post("/eip7702transaction", async (req, res) => {
       if (!accessList || accessList.length === 0) {
         return ""; // Empty string for empty access list - will be encoded as empty RLP list
       }
-      
+
       // If access list has items, format them properly
       // Access list format: [[address, [storage_keys]], ...]
       const formatted = accessList.map(item => {
@@ -995,7 +1338,7 @@ app.post("/eip7702transaction", async (req, res) => {
           storageKeys: item.storageKeys || []
         };
       });
-      
+
       return JSON.stringify(formatted);
     };
 
@@ -1010,7 +1353,7 @@ app.post("/eip7702transaction", async (req, res) => {
       signature: req.body.response.signature,
       "account-seal": user.wallet.accountSeal,
       "account-type": 0, // 0 for BTC/ETH, 1 for Solana
-      
+
       // EIP-7702 specific fields (as hex strings with canonical encoding)
       chainId: toCanonicalHex(chainId),
       delegationAddress: toCanonicalHex(delegationAddress),
@@ -1061,6 +1404,7 @@ app.post("/eip7702transaction", async (req, res) => {
 
     // Broadcast the transaction to the network
     try {
+      console.log(signedTransaction);
       const { data } = await axios.post(ALCHEMY_URL, {
         jsonrpc: "2.0",
         method: "eth_sendRawTransaction",
@@ -1075,7 +1419,7 @@ app.post("/eip7702transaction", async (req, res) => {
       }
 
       console.log("EIP-7702 Transaction hash:", data.result);
-      
+
       return res.json({
         success: true,
         hash: data.result,
@@ -1087,7 +1431,7 @@ app.post("/eip7702transaction", async (req, res) => {
 
     } catch (broadcastError) {
       console.error("Transaction broadcast failed:", broadcastError.response?.data || broadcastError.message);
-      
+
       // Return the signed transaction even if broadcast fails
       // This allows the client to retry broadcasting or use a different RPC
       return res.json({
@@ -1103,7 +1447,7 @@ app.post("/eip7702transaction", async (req, res) => {
 
   } catch (error) {
     console.error("EIP-7702 transaction error:", error.response?.data || error.message);
-    
+
     // Provide more specific error messages
     let errorMessage = "EIP-7702 transaction failed";
     if (error.response?.data) {
@@ -1150,50 +1494,50 @@ app.post("/createTransaction", async (req, res) => {
     const ALCHEMY_URL =
       // "https://arb-mainnet.g.alchemy.com/v2/LoyiQqdGjjR-z88vsuA0WofB-5i2r2UD";
       "https://mainnet.infura.io/v3/00904e37a5644a96be0e7ce44f71ba0f";
-      // "http://localhost:8545";
+    // "http://localhost:8545";
 
     // Get user's Ethereum address from wallet
     const fromAddress = "0x" + user.wallet.ethereumAddress;
     const toAddress = "0xAc2F5e28558588a02FD1839Bb7022Df45494061E";
 
-// Get nonce and gas price in parallel
-const [nonceResponse, gasPriceResponse] = await Promise.all([
-  axios.post(ALCHEMY_URL, {
-    jsonrpc: "2.0",
-    method: "eth_getTransactionCount",
-    params: [fromAddress, "latest"],
-    id: 1,
-  }),
-  axios.post(ALCHEMY_URL, {
-    jsonrpc: "2.0",
-    method: "eth_gasPrice",
-    params: [],
-    id: 2,
-  })
-]);
+    // Get nonce and gas price in parallel
+    const [nonceResponse, gasPriceResponse] = await Promise.all([
+      axios.post(ALCHEMY_URL, {
+        jsonrpc: "2.0",
+        method: "eth_getTransactionCount",
+        params: [fromAddress, "latest"],
+        id: 1,
+      }),
+      axios.post(ALCHEMY_URL, {
+        jsonrpc: "2.0",
+        method: "eth_gasPrice",
+        params: [],
+        id: 2,
+      })
+    ]);
 
-const nonce = parseInt(nonceResponse.data.result, 16);
-const gasPrice = parseInt(gasPriceResponse.data.result, 16);
+    const nonce = parseInt(nonceResponse.data.result, 16);
+    const gasPrice = parseInt(gasPriceResponse.data.result, 16);
 
-// Use 110% of current gas price for faster confirmation
-const adjustedGasPrice = Math.floor(gasPrice * 1.1);
+    // Use 110% of current gas price for faster confirmation
+    const adjustedGasPrice = Math.floor(gasPrice * 1.1);
 
-console.log("Current gas price:", gasPrice, "wei");
-console.log("Adjusted gas price:", adjustedGasPrice, "wei");
+    console.log("Current gas price:", gasPrice, "wei");
+    console.log("Adjusted gas price:", adjustedGasPrice, "wei");
 
-console.log("Current gas price:", gasPrice, "wei");
-console.log("Adjusted gas price:", adjustedGasPrice, "wei");
+    console.log("Current gas price:", gasPrice, "wei");
+    console.log("Adjusted gas price:", adjustedGasPrice, "wei");
 
-// Prepare transaction
-const txParams = {
-  nonce: nonce === 0 ? Buffer.alloc(0) : toBuffer(nonce),
-  gasPrice: toBuffer(adjustedGasPrice),
-  gasLimit: toBuffer(50000),
-  to: toBuffer(toAddress),
-  // value: toBuffer(new BN("1200000000000000")),
-  value: toBuffer(new BN("12000")),
-  data: Buffer.alloc(0),
-};
+    // Prepare transaction
+    const txParams = {
+      nonce: nonce === 0 ? Buffer.alloc(0) : toBuffer(nonce),
+      gasPrice: toBuffer(adjustedGasPrice),
+      gasLimit: toBuffer(50000),
+      to: toBuffer(toAddress),
+      // value: toBuffer(new BN("1200000000000000")),
+      value: toBuffer(new BN("12000")),
+      data: Buffer.alloc(0),
+    };
     // RLP encode transaction
     const rawTx = [
       txParams.nonce,
@@ -1210,11 +1554,11 @@ const txParams = {
     const rlpEncoded = rlp.encode(rawTx);
     const msgHash = keccak256(Buffer.from(rlpEncoded));
 
-   const msgHashBase64Url = msgHash
+    const msgHashBase64Url = msgHash
       .toString("base64")
       .replace(/\+/g, "-")
       .replace(/\//g, "_")
-      .replace(/=+$/, ""); 
+      .replace(/=+$/, "");
     // Prepare the message body with all required fields
     const messageBody = {
       clientDataJSON: req.body.response.clientDataJSON,
@@ -1242,93 +1586,93 @@ const txParams = {
     }
 
 
-console.log("HELLO ")
-console.log(sgxResponse)
+    console.log("HELLO ")
+    console.log(sgxResponse)
 
-// Replace the signature parsing section with this:
+    // Replace the signature parsing section with this:
 
-if (sgxResponse.data) {
-  const signature = sgxResponse.data.signature;
+    if (sgxResponse.data) {
+      const signature = sgxResponse.data.signature;
 
-  // Convert base64url to base64
-  const base64Signature = signature.replace(/-/g, '+').replace(/_/g, '/');
-  const paddedSignature = base64Signature + '='.repeat((4 - base64Signature.length % 4) % 4);
-  const sigBuffer = Buffer.from(paddedSignature, 'base64');
+      // Convert base64url to base64
+      const base64Signature = signature.replace(/-/g, '+').replace(/_/g, '/');
+      const paddedSignature = base64Signature + '='.repeat((4 - base64Signature.length % 4) % 4);
+      const sigBuffer = Buffer.from(paddedSignature, 'base64');
 
-  console.log("Signature buffer length:", sigBuffer.length);
-  console.log("sigBuffer", sigBuffer);
+      console.log("Signature buffer length:", sigBuffer.length);
+      console.log("sigBuffer", sigBuffer);
 
-  if (sigBuffer.length !== 65) {
-    throw new Error(`Invalid signature length: ${sigBuffer.length}, expected 65`);
-  }
+      if (sigBuffer.length !== 65) {
+        throw new Error(`Invalid signature length: ${sigBuffer.length}, expected 65`);
+      }
 
-  // Extract r, s, and recovery ID
-  const r = sigBuffer.subarray(0, 32);
-  const s = sigBuffer.subarray(32, 64);
-  const recoveryId = sigBuffer[64];
+      // Extract r, s, and recovery ID
+      const r = sigBuffer.subarray(0, 32);
+      const s = sigBuffer.subarray(32, 64);
+      const recoveryId = sigBuffer[64];
 
-  console.log("Recovery ID:", recoveryId);
-  console.log("r:", "0x" + r.toString("hex"));
-  console.log("s:", "0x" + s.toString("hex"));
+      console.log("Recovery ID:", recoveryId);
+      console.log("r:", "0x" + r.toString("hex"));
+      console.log("s:", "0x" + s.toString("hex"));
 
-  // Validate recovery ID (should be 0 or 1)
-  if (recoveryId > 1) {
-    throw new Error(`Invalid recovery ID: ${recoveryId}`);
-  }
+      // Validate recovery ID (should be 0 or 1)
+      if (recoveryId > 1) {
+        throw new Error(`Invalid recovery ID: ${recoveryId}`);
+      }
 
-  // Calculate v for EIP-155 (Ethereum mainnet)
-  // v = recovery_id + 35 + chain_id * 2
-  const v = recoveryId + 35 + chainId * 2;
-  console.log("Calculated v:", v);
+      // Calculate v for EIP-155 (Ethereum mainnet)
+      // v = recovery_id + 35 + chain_id * 2
+      const v = recoveryId + 35 + chainId * 2;
+      console.log("Calculated v:", v);
 
-  // Create canonical buffers for r and s (remove leading zeros if any)
-  const rBuffer = r[0] === 0 ? r.subarray(1) : r;
-  const sBuffer = s[0] === 0 ? s.subarray(1) : s;
+      // Create canonical buffers for r and s (remove leading zeros if any)
+      const rBuffer = r[0] === 0 ? r.subarray(1) : r;
+      const sBuffer = s[0] === 0 ? s.subarray(1) : s;
 
-  console.log("txParams.nonce", txParams.nonce);
+      console.log("txParams.nonce", txParams.nonce);
 
-  const signedTx = [
-    txParams.nonce,
-    txParams.gasPrice,
-    txParams.gasLimit,
-    txParams.to,
-    txParams.value,
-    txParams.data,
-    toBuffer(v),
-    rBuffer,
-    sBuffer,
-  ];
+      const signedTx = [
+        txParams.nonce,
+        txParams.gasPrice,
+        txParams.gasLimit,
+        txParams.to,
+        txParams.value,
+        txParams.data,
+        toBuffer(v),
+        rBuffer,
+        sBuffer,
+      ];
 
-  const rawSignedTx = rlp.encode(signedTx);
-  const rawTxHex = "0x" + Buffer.from(rawSignedTx).toString("hex");
+      const rawSignedTx = rlp.encode(signedTx);
+      const rawTxHex = "0x" + Buffer.from(rawSignedTx).toString("hex");
 
-  console.log("Raw transaction hex:", rawTxHex);
+      console.log("Raw transaction hex:", rawTxHex);
 
-  try {
-    const { data } = await axios.post(ALCHEMY_URL, {
-      jsonrpc: "2.0",
-      method: "eth_sendRawTransaction",
-      params: [rawTxHex],
-      id: 2,
-    });
-    console.log("Transaction response:", data);
-    console.log("Transaction hash:", data.result);
-    
-    return res.json({
-      success: true,
-      hash: data.result,
-    });
-  } catch (error) {
-    console.error("Transaction failed:", error.response?.data || error.message);
-    return res.status(400).json({
-      success: false,
-      error: error.response?.data || error.message,
-    });
-  }
-}
+      try {
+        const { data } = await axios.post(ALCHEMY_URL, {
+          jsonrpc: "2.0",
+          method: "eth_sendRawTransaction",
+          params: [rawTxHex],
+          id: 2,
+        });
+        console.log("Transaction response:", data);
+        console.log("Transaction hash:", data.result);
+
+        return res.json({
+          success: true,
+          hash: data.result,
+        });
+      } catch (error) {
+        console.error("Transaction failed:", error.response?.data || error.message);
+        return res.status(400).json({
+          success: false,
+          error: error.response?.data || error.message,
+        });
+      }
+    }
 
     // if (sgxResponse.data) {
-      
+
     //   const signature = sgxResponse.data.signature;
 
     //   // Convert base64url to base64 (replace URL-safe characters)
@@ -1407,3 +1751,121 @@ if (sgxResponse.data) {
 app.listen(3000, () => {
   console.log("Server is running on http://localhost:3000");
 });
+
+
+
+
+async function estimateGasLimit(provider, authorizationData, calldata, fromAddress) {
+  try {
+    console.log('Estimating gas for EIP-7702 transaction...');
+    console.log('Target EOA:', fromAddress);
+    console.log('Authorization address:', authorizationData.address);
+    console.log('Calldata length:', calldata?.length || 0);
+
+    // For EIP-7702, we're calling an EOA that will temporarily act as a contract
+    // The EOA gets the code from the authorized contract address
+
+    let estimatedGas;
+
+    try {
+      // Method 1: Try to estimate against the authorized contract directly
+      // This simulates what the EOA will do when it has the delegated code
+      const contractEstimateRequest = {
+        from: fromAddress,
+        to: authorizationData.address, // The contract whose code will be delegated
+        value: '0x0',
+        data: calldata || '0x',
+      };
+
+      console.log('Estimating against authorized contract:', authorizationData.address);
+      estimatedGas = await provider.estimateGas(contractEstimateRequest);
+      console.log('Contract simulation gas:', estimatedGas.toString());
+
+      // Add EIP-7702 specific overhead
+      const eip7702Overhead = 16000n; // Authorization verification overhead
+      estimatedGas = estimatedGas + eip7702Overhead;
+      console.log('With EIP-7702 overhead:', estimatedGas.toString());
+
+    } catch (error) {
+      console.log('Contract simulation failed:', error.message);
+
+      // Method 2: Manual calculation for EIP-7702
+      console.log('Using manual EIP-7702 calculation...');
+      estimatedGas = calculateEIP7702GasEstimate(calldata);
+    }
+
+    // Add safety buffer (30% for EIP-7702 due to complexity)
+    const gasWithBuffer = (estimatedGas * 130n) / 100n;
+    console.log('Gas with 30% buffer:', gasWithBuffer.toString());
+
+    return gasWithBuffer;
+
+  } catch (error) {
+    console.error('EIP-7702 gas estimation error:', error);
+    // Return a reasonable default for EIP-7702 transactions
+    return 200000n;
+  }
+}
+
+function calculateEIP7702GasEstimate(calldata) {
+  console.log('Calculating EIP-7702 gas estimate...');
+
+  // Base transaction cost
+  let gasEstimate = 21000n; // Base transaction gas
+
+  // EIP-7702 specific costs
+  gasEstimate += 16000n; // Authorization verification
+  gasEstimate += 2300n;  // DELEGATECALL overhead
+
+  // Calldata cost
+  if (calldata && calldata !== '0x') {
+    const calldataBytes = ethers.getBytes(calldata);
+    for (const byte of calldataBytes) {
+      gasEstimate += byte === 0 ? 4n : 16n;
+    }
+  }
+
+  // Contract execution estimation (conservative)
+  // Since we can't simulate the actual contract call, use heuristics
+  const calldataLength = calldata ? (calldata.length - 2) / 2 : 0;
+
+  if (calldataLength > 4) {
+    // Looks like a function call
+    gasEstimate += 50000n; // Base contract execution
+
+    // Add more gas based on calldata complexity
+    if (calldataLength > 100) {
+      gasEstimate += 30000n; // Complex function call
+    }
+    if (calldataLength > 500) {
+      gasEstimate += 50000n; // Very complex function call
+    }
+  }
+
+  console.log('Manual EIP-7702 gas estimate:', gasEstimate.toString());
+  return gasEstimate;
+}
+
+function calculateManualGasEstimate(calldata) {
+  console.log('Calculating manual gas estimate...');
+
+  // Base transaction cost
+  let gasEstimate = 21000n; // Base transaction gas
+
+  // EIP-7702 authorization overhead
+  gasEstimate += 16000n; // Per authorization
+
+  // Calldata cost
+  if (calldata && calldata !== '0x') {
+    const calldataBytes = ethers.getBytes(calldata);
+    for (const byte of calldataBytes) {
+      gasEstimate += byte === 0 ? 4n : 16n; // 4 gas for zero bytes, 16 for non-zero
+    }
+  }
+
+  // Additional buffer for contract execution
+  gasEstimate += 50000n; // Conservative buffer for contract calls
+
+  console.log('Manual gas estimate:', gasEstimate.toString());
+  return gasEstimate;
+}
