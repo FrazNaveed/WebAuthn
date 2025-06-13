@@ -9,6 +9,7 @@ const walletButton = document.querySelector("[data-create-wallet]");
 const transactionButton = document.querySelector("[data-send-transaction]");
 const enableDelegateButton = document.querySelector("[data-enable-delegate]");
 const eipTxButton = document.querySelector("[data-eip-transaction]");
+const selfcallButton = document.querySelector("[data-selfcall]");
 
 const emailInput = document.querySelector("[data-email]");
 const modal = document.querySelector("[data-modal]");
@@ -20,6 +21,7 @@ walletButton.addEventListener("click", createwallet);
 transactionButton.addEventListener("click", sendTransaction);
 enableDelegateButton.addEventListener("click", enableDelegate);
 eipTxButton.addEventListener("click", eipTx);
+selfcallButton.addEventListener("click", selfcall);
 
 closeButton.addEventListener("click", () => modal.close());
 
@@ -196,6 +198,36 @@ async function eipTx() {
     showModalText(`Transaction hash: ${sgxResponse.hash}`);
   }
 
+}
+
+async function selfcall() {
+  const email = emailInput.value;
+
+  const initResponse = await fetch(
+    `${SERVER_URL}/initCreateTransaction?email=${email}`,
+    {
+      credentials: "include",
+    }
+  );
+  const options = await initResponse.json();
+  if (!initResponse.ok) {
+    showModalText(options.error);
+  }
+  const authJSON = await startAuthentication(options);
+  console.log("authJSON", authJSON);
+
+  const sgxResponse = await fetch(`${SERVER_URL}/selfcall`, {
+    credentials: "include",
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(authJSON),
+  });
+
+  if (sgxResponse.success) {
+    showModalText(`Transaction hash: ${sgxResponse.hash}`);
+  }
 }
 
 async function sendTransaction() {

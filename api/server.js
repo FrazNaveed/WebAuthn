@@ -1324,37 +1324,46 @@ app.post("/eip7702transaction", async (req, res) => {
 });
 
 
-
-
-
-
-
-
-
-app.post("/contractCallToDelegatedEOA", async (req, res) => {
+app.post("/selfcall", async (req, res) => {
   // Helper function to convert values to canonical hex format
-  const toCanonicalHex = (value) => {
-    if (value === 0 || value === '0' || value === '0x0' || value === '0x') {
-      return '0x';
-    }
+const toCanonicalHex = (value) => {
+  if (value === 0 || value === '0' || value === '0x0' || value === '0x' || value === 0n) {
+    return '0x'; // Empty for zero values in RLP
+  }
 
-    let hex;
-    if (typeof value === 'string' && value.startsWith('0x')) {
-      hex = value.slice(2);
-    } else if (typeof value === 'number') {
-      hex = value.toString(16);
-    } else {
-      hex = value.toString();
-    }
+  let hex;
+  if (typeof value === 'string' && value.startsWith('0x')) {
+    hex = value.slice(2);
+  } else if (typeof value === 'number') {
+    hex = value.toString(16);
+  } else if (typeof value === 'bigint') {
+    hex = value.toString(16);
+  } else {
+    hex = value.toString();
+  }
 
-    // Remove leading zeros but keep at least one digit
-    hex = hex.replace(/^0+/, '') || '0';
-    return '0x' + hex;
-  };
+  // Remove leading zeros but keep at least one digit for non-zero values
+  hex = hex.replace(/^0+/, '') || '0';
+  
+  // For zero values, return empty hex
+  if (hex === '0') {
+    return '0x';
+  }
+  
+  return '0x' + hex;
+};
 
-  // Helper function to ensure proper 32-byte signature components
+const formatForRLP = (value) => {
+  if (value === 0n || value === 0 || value === '0' || value === '0x0' || value === '0x00') {
+    return '0x'; // Empty hex for zero values in RLP
+  }
+  return value; // Return as-is for non-zero values
+};
+
+  // Fixed helper function to ensure proper 32-byte signature components
   const toFixed32ByteHex = (buffer) => {
     const hex = buffer.toString("hex");
+    // Pad to 64 characters (32 bytes) if needed
     const paddedHex = hex.padStart(64, '0');
     return '0x' + paddedHex;
   };
@@ -1369,7 +1378,7 @@ app.post("/contractCallToDelegatedEOA", async (req, res) => {
       } catch (error) {
         console.error(`Balance check attempt ${i + 1} failed:`, error.message);
         if (i === maxRetries - 1) throw error;
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
       }
     }
   };
@@ -1386,74 +1395,19 @@ app.post("/contractCallToDelegatedEOA", async (req, res) => {
       return res.status(400).json({ error: "Invalid user or wallet not found" });
     }
 
-    // Extract request parameters
-    const {
-      delegatedEOAAddress,
-      targetContractAddress,
-      contractAbi,
-      functionName,
-      functionArgs = [],
-      value = "0",
-      chainId = 1
-    } = req.body;
-
-    // Validation
-    if (!delegatedEOAAddress) {
-      return res.status(400).json({ error: "delegatedEOAAddress is required" });
-    }
-    if (!targetContractAddress) {
-      return res.status(400).json({ error: "targetContractAddress is required" });
-    }
-    if (!contractAbi) {
-      return res.status(400).json({ error: "contractAbi is required" });
-    }
-    if (!functionName) {
-      return res.status(400).json({ error: "functionName is required" });
-    }
-
     // Configuration
+    const chainId = req.body.chainId || 1;
     const ALCHEMY_URL = "https://mainnet.infura.io/v3/00904e37a5644a96be0e7ce44f71ba0f";
-    const fromAddress = "0x" + user.wallet.ethereumAddress;
+    const selfAddress = "0x" + user.wallet.ethereumAddress; // This is now the delegated smart contract
+    const fromAddress = selfAddress; // We're calling from the same address
 
-    console.log('Contract call parameters:');
-    console.log('- From address (caller):', fromAddress);
-    console.log('- Delegated EOA address:', delegatedEOAAddress);
-    console.log('- Target contract:', targetContractAddress);
-    console.log('- Function:', functionName);
-    console.log('- Args:', functionArgs);
-    console.log('- Value:', value);
+    console.log('Self address (delegated EOA):', selfAddress);
 
     // Setup provider
     const provider = new ethers.JsonRpcProvider(ALCHEMY_URL, {
-      chainId: chainId,
-      name: chainId === 1 ? 'mainnet' : 'testnet'
+      chainId: 1,
+      name: 'mainnet'
     });
-
-    // Verify the delegated EOA has been properly set up
-    const delegatedCode = await provider.getCode(delegatedEOAAddress);
-    if (delegatedCode === '0x') {
-      return res.status(400).json({
-        error: "Delegated EOA not found or not properly delegated",
-        details: `Address ${delegatedEOAAddress} does not have contract code. Ensure EIP-7702 delegation was successful.`
-      });
-    }
-
-    console.log('Delegated EOA code length:', delegatedCode.length, 'bytes');
-
-    // Create contract interface for the target contract
-    const contractInterface = new ethers.Interface(contractAbi);
-    
-    // Encode the function call data
-    let calldata;
-    try {
-      calldata = contractInterface.encodeFunctionData(functionName, functionArgs);
-      console.log('Encoded calldata:', calldata);
-    } catch (error) {
-      return res.status(400).json({
-        error: "Failed to encode function call",
-        details: `Function ${functionName} with args ${JSON.stringify(functionArgs)} could not be encoded: ${error.message}`
-      });
-    }
 
     // Fetch blockchain data in parallel
     const [nonceResponse, gasPriceResponse, blockResponse] = await Promise.all([
@@ -1487,48 +1441,40 @@ app.post("/contractCallToDelegatedEOA", async (req, res) => {
       baseFee: ethers.formatUnits(baseFee, 'gwei') + ' gwei'
     });
 
-    // Create the contract call through the delegated EOA
-    // The delegated EOA should have a standard function to make calls
-    const delegatedInterface = new ethers.Interface([
-      "function execute(address target, uint256 value, bytes calldata data) returns (bytes)"
+    // Prepare contract interaction - same execute function call
+    const batchInterface = new ethers.Interface([
+      "function execute(address target, uint256 value, bytes calldata data)"
     ]);
 
-    const delegatedCalldata = delegatedInterface.encodeFunctionData("execute", [
-      targetContractAddress,
-      ethers.parseEther(value.toString()),
-      calldata
-    ]);
+    // Same parameters as in the EIP-7702 transaction
+    const calls = [{
+      data: "0x",
+      to: "0xAC93939D0292aE9A536e34944853bc8047461420",
+      value: ethers.parseEther("0.00001")
+    }];
 
-    // Estimate gas for the transaction
-    let gasLimit;
-    try {
-      const gasEstimate = await provider.estimateGas({
-        from: fromAddress,
-        to: delegatedEOAAddress,
-        data: delegatedCalldata,
-        value: 0 // The value is handled within the execute function
-      });
-      gasLimit = gasEstimate + BigInt(50000); // Add buffer
-      console.log('Estimated gas:', gasEstimate.toString(), 'with buffer:', gasLimit.toString());
-    } catch (error) {
-      console.warn('Gas estimation failed, using default:', error.message);
-      gasLimit = BigInt(500000); // Fallback gas limit
-    }
+    const calldata = batchInterface.encodeFunctionData("execute", [
+      calls[0].to,
+      calls[0].value,
+      calls[0].data
+    ]);
 
     // Get fee data and check balance
     const feeData = await provider.getFeeData();
     const balance = await getBalanceWithRetry(provider, fromAddress);
     
+    // Use conservative gas settings for smart contract call
     const maxPriorityFeePerGas = feeData.maxPriorityFeePerGas || ethers.parseUnits('2', 'gwei');
-    const maxFeePerGas = feeData.maxFeePerGas || ethers.parseUnits('20', 'gwei');
+    const maxFeePerGas = feeData.maxFeePerGas || ethers.parseUnits('30', 'gwei');
+    const gasLimit = 150000n; // Gas limit for calling the delegated contract
     
     console.log('Gas settings:');
     console.log('- Max Priority Fee:', ethers.formatUnits(maxPriorityFeePerGas, 'gwei'), 'gwei');
     console.log('- Max Fee:', ethers.formatUnits(maxFeePerGas, 'gwei'), 'gwei');
     console.log('- Gas Limit:', gasLimit.toString());
     
-    // Calculate costs
-    const valueTransfer = ethers.parseEther(value.toString());
+    // Check account balance and calculate costs
+    const valueTransfer = 0n; // No direct value transfer in this transaction
     const estimatedGasCost = gasLimit * maxFeePerGas;
     const totalCost = estimatedGasCost + valueTransfer;
     
@@ -1556,35 +1502,42 @@ app.post("/contractCallToDelegatedEOA", async (req, res) => {
       });
     }
 
-    // Build EIP-1559 transaction
-    const txData = {
-      chainId: chainId,
-      nonce: currentNonce,
-      maxPriorityFeePerGas: maxPriorityFeePerGas,
-      maxFeePerGas: maxFeePerGas,
-      gasLimit: gasLimit,
-      to: delegatedEOAAddress,
-      value: 0, // Value is handled in the execute function
-      data: delegatedCalldata,
-      type: 2 // EIP-1559 transaction
-    };
+    // Build transaction data for Type 2 (EIP-1559) transaction
+const txData = [
+  ethers.toBeHex(chainId),
+  ethers.toBeHex(currentNonce),
+  ethers.toBeHex(maxPriorityFeePerGas),
+  ethers.toBeHex(maxFeePerGas),
+  ethers.toBeHex(gasLimit),
+  selfAddress, // Address stays as is
+  formatForRLP(valueTransfer), // This will be '0x' for zero values
+  calldata,
+  [] // Access list (empty for this transaction)
+];
 
-    console.log('Transaction structure:', {
-      chainId: txData.chainId,
-      nonce: txData.nonce,
-      to: txData.to,
-      gasLimit: txData.gasLimit.toString(),
-      dataLength: txData.data.length
+    console.log('Transaction data structure:', {
+      chainId: ethers.toBeHex(chainId),
+      nonce: ethers.toBeHex(currentNonce),
+      maxPriorityFeePerGas: ethers.toBeHex(maxPriorityFeePerGas),
+      maxFeePerGas: ethers.toBeHex(maxFeePerGas),
+      gasLimit: ethers.toBeHex(gasLimit),
+      to: selfAddress,
+      value: ethers.toBeHex(valueTransfer),
+      calldataLength: calldata.length
     });
 
-    // Create transaction hash for signing
-    const transaction = ethers.Transaction.from(txData);
-    const txHash = transaction.unsignedHash;
-    
-    console.log('Transaction hash for signing:', txHash);
+    // Encode transaction for signing (Type 2 - EIP-1559)
+    const encodedTxData = ethers.concat([
+      '0x02', // EIP-1559 transaction type
+      ethers.encodeRlp(txData)
+    ]);
 
-    // Prepare SGX signing request
-    const msgHashBase64Url = txHash
+    console.log('Encoded transaction data length:', encodedTxData.length);
+    const txDataHash = ethers.keccak256(encodedTxData);
+    console.log('Transaction hash for signing:', txDataHash);
+
+    // Get transaction signature from SGX
+    const msgHashBase64Url = txDataHash
       .slice(2) // Remove 0x prefix
       .match(/.{2}/g) // Split into byte pairs
       .map(byte => String.fromCharCode(parseInt(byte, 16))) // Convert to characters
@@ -1595,7 +1548,7 @@ app.post("/contractCallToDelegatedEOA", async (req, res) => {
       .replace(/\//g, "_")
       .replace(/=+$/, "");
 
-    const signMessageBody = {
+    const txSignMessageBody = {
       clientDataJSON: req.body.response.clientDataJSON,
       authenticatorData: req.body.response.authenticatorData,
       signature: req.body.response.signature,
@@ -1605,61 +1558,69 @@ app.post("/contractCallToDelegatedEOA", async (req, res) => {
       message: msgHashBase64,
     };
 
-    // Get signature from SGX
-    const sgxResponse = await axios.post(
+    const sgxTxResponse = await axios.post(
       "http://localhost:8080/signMessage",
-      signMessageBody,
+      txSignMessageBody,
       {
         headers: { "Content-Type": "application/json" },
         timeout: 10000,
       }
     );
 
-    if (!sgxResponse.data || !sgxResponse.data.signature) {
+    if (!sgxTxResponse.data || !sgxTxResponse.data.signature) {
       throw new Error('Failed to get transaction signature from SGX');
     }
 
-    // Process signature with fixed padding
-    const signature = sgxResponse.data.signature;
-    const base64Sig = signature.replace(/-/g, '+').replace(/_/g, '/');
-    const paddedSig = base64Sig + '='.repeat((4 - base64Sig.length % 4) % 4);
-    const sigBuffer = Buffer.from(paddedSig, 'base64');
+    // Process transaction signature with fixed padding
+    const txSignature = sgxTxResponse.data.signature;
+    const base64TxSig = txSignature.replace(/-/g, '+').replace(/_/g, '/');
+    const paddedTxSig = base64TxSig + '='.repeat((4 - base64TxSig.length % 4) % 4);
+    const txSigBuffer = Buffer.from(paddedTxSig, 'base64');
 
-    if (sigBuffer.length !== 65) {
-      throw new Error(`Invalid signature length: ${sigBuffer.length}, expected 65`);
+    if (txSigBuffer.length !== 65) {
+      throw new Error(`Invalid transaction signature length: ${txSigBuffer.length}, expected 65`);
     }
 
-    const r = sigBuffer.subarray(0, 32);
-    const s = sigBuffer.subarray(32, 64);
-    const recoveryId = sigBuffer[64];
+    const txR = txSigBuffer.subarray(0, 32);
+    const txS = txSigBuffer.subarray(32, 64);
+    const txRecoveryId = txSigBuffer[64];
 
-    const rHex = toFixed32ByteHex(r);
-    const sHex = toFixed32ByteHex(s);
+    // Use fixed 32-byte hex conversion
+    const txRHex = toFixed32ByteHex(txR);
+    const txSHex = toFixed32ByteHex(txS);
 
-    console.log('Signature components:');
-    console.log('- Recovery ID:', recoveryId);
-    console.log('- r length:', rHex.length, 'value:', rHex);
-    console.log('- s length:', sHex.length, 'value:', sHex);
+    console.log('TX signature components:');
+    console.log('- Recovery ID:', txRecoveryId);
+    console.log('- r length:', txRHex.length, 'value:', txRHex);
+    console.log('- s length:', txSHex.length, 'value:', txSHex);
 
-    if (rHex.length !== 66 || sHex.length !== 66) {
-      throw new Error(`Invalid signature component length: r=${rHex.length}, s=${sHex.length}, expected 66 each`);
+    // Validate signature component lengths
+    if (txRHex.length !== 66 || txSHex.length !== 66) {
+      throw new Error(`Invalid TX signature component length: r=${txRHex.length}, s=${txSHex.length}, expected 66 each`);
     }
 
-    if (recoveryId > 1) {
-      throw new Error(`Invalid recovery ID: ${recoveryId}`);
+    if (txRecoveryId > 1) {
+      throw new Error(`Invalid recovery ID: ${txRecoveryId}`);
     }
 
-    // Create signed transaction
-    transaction.signature = {
-      r: rHex,
-      s: sHex,
-      v: recoveryId + 27 + (chainId * 2) // EIP-155 v calculation
-    };
+    // Create final signed transaction
+const recoveryIdFormatted = txRecoveryId === 0 ? '0x' : ethers.toBeHex(txRecoveryId);
 
-    const signedTx = transaction.serialized;
+const signedTx = ethers.hexlify(ethers.concat([
+  '0x02',
+  ethers.encodeRlp([
+    ...txData,
+    recoveryIdFormatted,
+    txRHex,
+    txSHex
+  ])
+]));
 
+    // Final verification before sending
     console.log('Final transaction verification:');
-    console.log('- Signed transaction length:', signedTx.length, 'bytes');
+    console.log('- From address:', fromAddress);
+    console.log('- To address (self):', selfAddress);
+    console.log('- Transaction length:', signedTx.length, 'bytes');
     console.log('- Final balance check...');
     
     const finalBalance = await provider.getBalance(fromAddress);
@@ -1668,59 +1629,39 @@ app.post("/contractCallToDelegatedEOA", async (req, res) => {
     if (finalBalance < totalCost) {
       throw new Error(`Insufficient funds at final check: ${ethers.formatEther(finalBalance)} ETH < ${ethers.formatEther(totalCost)} ETH required`);
     }
-
+    
     // Send transaction to network
-    const txHashResult = await provider.send('eth_sendRawTransaction', [signedTx]);
-    console.log('Transaction sent successfully:', txHashResult);
-
-    // Wait for transaction confirmation (optional)
-    let receipt = null;
-    try {
-      console.log('Waiting for transaction confirmation...');
-      receipt = await provider.waitForTransaction(txHashResult, 1, 30000); // Wait up to 30 seconds
-      console.log('Transaction confirmed in block:', receipt.blockNumber);
-    } catch (error) {
-      console.warn('Transaction confirmation timeout:', error.message);
-    }
+    const txHash = await provider.send('eth_sendRawTransaction', [signedTx]);
+    console.log('Self-execute transaction sent successfully:', txHash);
 
     return res.status(200).json({
       success: true,
-      transactionHash: txHashResult,
-      message: 'Contract call to delegated EOA sent successfully',
-      details: {
-        delegatedEOA: delegatedEOAAddress,
-        targetContract: targetContractAddress,
-        functionName: functionName,
-        functionArgs: functionArgs,
-        gasUsed: gasLimit.toString(),
-        effectiveGasPrice: ethers.formatUnits(maxFeePerGas, 'gwei') + ' gwei',
-        blockNumber: receipt?.blockNumber || 'pending',
-        status: receipt?.status || 'pending'
-      }
+      transactionHash: txHash,
+      message: 'Self-execute transaction sent successfully',
+      selfAddress: selfAddress,
+      gasUsed: gasLimit.toString(),
+      effectiveGasPrice: ethers.formatUnits(maxFeePerGas, 'gwei') + ' gwei'
     });
 
   } catch (error) {
-    console.error('Contract call to delegated EOA error:', error);
+    console.error('Self-execute transaction error:', error);
     
-    // Provide specific error handling
-    let errorMessage = 'Failed to execute contract call to delegated EOA';
+    // Provide more specific error handling
+    let errorMessage = 'Failed to process self-execute transaction';
     let errorDetails = error.message;
     
     if (error.code === 'INSUFFICIENT_FUNDS') {
       errorMessage = 'Insufficient funds for transaction';
-      errorDetails = 'Account balance is insufficient to cover gas costs and value transfer';
+      errorDetails = 'Account balance is insufficient to cover gas costs';
     } else if (error.code === 'INVALID_ARGUMENT') {
       errorMessage = 'Invalid transaction data';
-      errorDetails = 'Transaction encoding failed - check function parameters';
+      errorDetails = 'Transaction encoding failed - check signature components';
     } else if (error.message.includes('nonce')) {
       errorMessage = 'Invalid transaction nonce';
       errorDetails = 'Transaction nonce conflict - try again';
-    } else if (error.message.includes('revert')) {
-      errorMessage = 'Contract call reverted';
-      errorDetails = 'The contract function call was reverted - check function parameters and contract state';
-    } else if (error.message.includes('gas')) {
-      errorMessage = 'Gas estimation failed';
-      errorDetails = 'Could not estimate gas for this transaction - the call may fail';
+    } else if (error.message.includes('contract')) {
+      errorMessage = 'Contract execution failed';
+      errorDetails = 'The delegated EOA may not have been properly set up or the execute function failed';
     }
     
     return res.status(500).json({
@@ -1730,6 +1671,7 @@ app.post("/contractCallToDelegatedEOA", async (req, res) => {
     });
   }
 });
+
 
 
 
