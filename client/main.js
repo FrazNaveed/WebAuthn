@@ -25,7 +25,14 @@ selfcallButton.addEventListener("click", selfcall);
 
 closeButton.addEventListener("click", () => modal.close());
 
-const SERVER_URL = "http://localhost:3000";
+const currentHostname = window.location.hostname;
+const protocol = window.location.protocol;
+
+// Set SERVER_URL dynamically
+const SERVER_URL =
+  currentHostname === "localhost" || currentHostname === "127.0.0.1"
+    ? `${protocol}//localhost:3000`
+    : `${protocol}//${currentHostname}:5619`; // Backend on port 5619 in production/staging
 
 async function signup() {
   const email = emailInput.value;
@@ -166,7 +173,6 @@ async function enableDelegate() {
   if (sgxResponse.success) {
     showModalText(`Transaction hash: ${sgxResponse.hash}`);
   }
-
 }
 
 async function eipTx() {
@@ -197,7 +203,6 @@ async function eipTx() {
   if (sgxResponse.success) {
     showModalText(`Transaction hash: ${sgxResponse.hash}`);
   }
-
 }
 
 async function selfcall() {
