@@ -1,7 +1,7 @@
 require("dotenv").config();
 const { webcrypto } = require("crypto");
 const axios = require("axios");
-const { keccak256, BN, bufferToHex } = require("ethereumjs-util"); // toBuffer
+const { keccak256, BN, bufferToHex, toBuffer } = require("ethereumjs-util");
 const secp256k1 = require("secp256k1");
 const rlp = require("rlp");
 
@@ -140,6 +140,8 @@ app.get("/init-auth", async (req, res) => {
     return res.status(400).json({ error: "No user for this email" });
   }
 
+  console.log("user", user);
+
   // Step 3.3: Create authentication challenge options
   const options = await generateAuthenticationOptions({
     rpID: RP_ID, // Domain
@@ -175,12 +177,18 @@ app.get("/init-auth", async (req, res) => {
 app.post("/verify-auth", async (req, res) => {
   // Step 4.1: Retrieve challenge and user info from cookie
   const authInfo = JSON.parse(req.cookies.authInfo);
+
+  console.log("authInfo", authInfo);
+
   if (!authInfo) {
     return res.status(400).json({ error: "Authentication info not found" });
   }
 
   // Step 4.2: Lookup user and validate credential ID
   const user = getUserById(authInfo.userId);
+
+  console.log("user in finish auth", user);
+
   if (user == null || user.passKey.id !== req.body.id) {
     return res.status(400).json({ error: "Invalid user" });
   }
@@ -200,6 +208,8 @@ app.post("/verify-auth", async (req, res) => {
       },
       requireUserVerification: false, // Can be true if enforcing biometrics
     });
+
+    console.log("verification", verification);
 
     // Step 4.4: Update counter (protects against cloned devices)
     if (verification.verified) {
@@ -298,6 +308,81 @@ app.get("/initCreateWallet", async (req, res) => {
 });
 
 app.post("/createWallet", async (req, res) => {
+  const authInfo = JSON.parse(req.cookies.authInfo);
+  if (!authInfo) {
+    return res.status(400).json({ error: "Authentication info not found" });
+  }
+
+  const user = getUserById(authInfo.userId);
+  if (user == null || user.passKey.id !== req.body.id) {
+    return res.status(400).json({ error: "Invalid user" });
+  }
+
+  if (user.wallet) {
+    return res.json({ sgxData: { data: user.wallet } });
+  }
+
+  const sgxPayload = {
+    clientDataJSON: req.body.response.clientDataJSON,
+    authenticatorData: req.body.response.authenticatorData,
+    signature: req.body.response.signature,
+  };
+
+  try {
+    const sgxData = await axios.post(
+      `${process.env.ENDPOINT}/createNewWallet`,
+      sgxPayload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    // const sgxData = {
+    //   data: {
+    //     "btc-eth-pubkey":
+    //       "bybcqOsPr-TIXW_CQaoUW9vMRku2Vb_BhYl1flqOQgAFUjSi5MB3ztN_4lo9cuW7VPUWsM2WvLgtL0XXPrBsxAA",
+    //     "account-seal":
+    //       "BAACAAAAAABIIPM3auay8gNNO3pLSKd4CwAAAAAAAP8AAAAAAAAAALAkBuTlmwbv3PqKG_LxU6qqqTLO_UoeF4lT-7JsOFtgAAAA8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgAAAAAAAAAAAAAAAAAAAAYAAAAAAAAAAAAAAAAAAAAG8QBpcYM9X1KDQYddxkfoEGqjNsSOMuLLqmPG7woOrOIc32CyHzE6f2943ureOUyMfoo3iYkBlJrLnlPz_vJm-9kCSzrTmlGaNXmxXbt2bSj__L8McTpSizgQyn8ARdlJOFZqUdpfCER11FPWFxM1U",
+    //     "ethereum-address": "9e468f66eba9ea254e2a390115cb706f7a652da3",
+    //     "solana-address": "7hxr6vNucgsPX1CaegLSpbxheVKq8FhHYxyEFNpqBiBm",
+    //     "btc-address": "1NWKzivw9hbe1KSesruoRRAa5JdyXpnpia",
+    //   },
+    // };
+
+    if (sgxData) {
+      // updateUserCounter(user.id, verification.authenticationInfo.newCounter);
+
+      const updatedUser = updateUserWallet(user.id, {
+        ethereumAddress: sgxData.data["ethereum-address"],
+        solanaAddress: sgxData.data["solana-address"],
+        btcAddress: sgxData.data["btc-address"],
+        btcEthPubKey: sgxData.data["btc-eth-pubkey"],
+        accountSeal: sgxData.data["account-seal"],
+      });
+
+      if (!updatedUser) {
+        return res.status(500).json({ error: "Failed to update user wallet" });
+      }
+
+      res.clearCookie("authInfo"); // Clean up
+
+      return res.json({ sgxData: { data: sgxData.data } });
+    } else {
+      return res.status(400).json({
+        verified: false,
+        error: "Verification failed",
+      });
+    }
+  } catch (error) {
+    console.error("Authentication error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+//1. do not store it in file, store in variable on FE
+app.post("/createPaymentWallet", async (req, res) => {
   const authInfo = JSON.parse(req.cookies.authInfo);
   if (!authInfo) {
     return res.status(400).json({ error: "Authentication info not found" });
@@ -631,9 +716,14 @@ app.post("/enableDelegate", async (req, res) => {
     return res.status(400).json({ error: "Invalid user or wallet not found" });
   }
 
+  // Validate RPC URL if provided
+  if (req.body.rpcUrl && !isValidUrl(req.body.rpcUrl)) {
+    return res.status(400).json({ error: "Invalid RPC URL format" });
+  }
+
   try {
-    const chainId = 1; // Ethereum Mainnet
-    const ALCHEMY_URL = "https://eth.llamarpc.com";
+    const chainId = 42161; // Arbitrum One
+    const ALCHEMY_URL = req.body.rpcUrl || "https://arb1.arbitrum.io/rpc";
 
     const fromAddress = "0x" + user.wallet.ethereumAddress;
 
@@ -759,6 +849,16 @@ app.post("/enableDelegate", async (req, res) => {
 const { ethers } = require("ethers");
 const { Console } = require("console");
 
+// Utility function to validate URL
+function isValidUrl(string) {
+  try {
+    const url = new URL(string);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch (_) {
+    return false;
+  }
+}
+
 // Helper function to create canonical buffers (no leading zeros)
 // function toBuffer(value) {
 //   if (value === 0 || value === '0' || value === '0x0') {
@@ -786,54 +886,6 @@ const { Console } = require("console");
 
 //   return Buffer.from(value);
 // }
-
-function toBuffer(value) {
-  if (value === null || value === undefined) {
-    return Buffer.alloc(0);
-  }
-
-  if (Buffer.isBuffer(value)) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    if (value.startsWith("0x")) {
-      const hex = value.slice(2);
-      if (hex.length === 0) return Buffer.alloc(0);
-      // Remove leading zeros for canonical encoding
-      const cleanHex = hex.replace(/^0+/, "") || "0";
-      return Buffer.from(
-        cleanHex.length % 2 ? "0" + cleanHex : cleanHex,
-        "hex"
-      );
-    }
-    return Buffer.from(value);
-  }
-
-  if (typeof value === "number") {
-    if (value === 0) return Buffer.alloc(0);
-    return Buffer.from(
-      value
-        .toString(16)
-        .padStart(
-          value.toString(16).length % 2
-            ? value.toString(16).length + 1
-            : value.toString(16).length,
-          "0"
-        ),
-      "hex"
-    );
-  }
-
-  if (BN.isBN(value)) {
-    if (value.isZero()) return Buffer.alloc(0);
-    return Buffer.from(value.toString(16, "hex"), "hex");
-  }
-
-  console.log(Buffer.from(value).toString("hex"));
-  return Buffer.from(value).toString("hex");
-  throw new Error(`Cannot convert ${typeof value} to buffer`);
-}
 
 // Dedicated address converter
 function toAddressBuffer(address) {
@@ -878,6 +930,8 @@ function bigIntToBuffer(value) {
 //   return Buffer.from(cleanAddress, 'hex');
 // }
 
+// 2. make a copy and rename it with eip7702PaymentWithdrawalTxn
+// 3.
 app.post("/eip7702transaction", async (req, res) => {
   // Helper function to convert values to canonical hex format
   const toCanonicalHex = (value) => {
@@ -955,11 +1009,17 @@ app.post("/eip7702transaction", async (req, res) => {
         .json({ error: "Invalid user or wallet not found" });
     }
 
+    // Validate RPC URL if provided
+    if (req.body.rpcUrl && !isValidUrl(req.body.rpcUrl)) {
+      return res.status(400).json({ error: "Invalid RPC URL format" });
+    }
+
     // Configuration
-    const chainId = req.body.chainId || 1;
-    const ALCHEMY_URL =
-      "https://mainnet.infura.io/v3/00904e37a5644a96be0e7ce44f71ba0f";
+    const chainId = req.body.chainId || 42161;
+    const ALCHEMY_URL = req.body.rpcUrl || "https://arb1.arbitrum.io/rpc";
     const fromAddress = "0x" + user.wallet.ethereumAddress;
+
+    // 3. this delegation address will the new eip 7702 we made
     const delegationAddress = "0x69007702764179f14F51cdce752f4f775d74E139";
 
     if (!delegationAddress) {
@@ -971,9 +1031,10 @@ app.post("/eip7702transaction", async (req, res) => {
     console.log("From address:", fromAddress);
 
     // Setup provider first
+    //4. accept via api body, set in input field FE
     const provider = new ethers.JsonRpcProvider(ALCHEMY_URL, {
-      chainId: 1,
-      name: "mainnet",
+      chainId: 42161,
+      name: "arbitrum",
     });
 
     // Fetch blockchain data in parallel
@@ -1017,6 +1078,9 @@ app.post("/eip7702transaction", async (req, res) => {
     //   "function execute(tuple(bytes data, address to, uint256 value)[] calls)"
     // ]);
 
+    //5. in data we will encode the transfer function of usdc contract
+    // 6. to will be the usdc contract address,
+    // 7. value will be 0, no eth transfer
     const calls = [
       {
         data: "0x",
@@ -1038,7 +1102,7 @@ app.post("/eip7702transaction", async (req, res) => {
       clientDataJSON: req.body.response.clientDataJSON,
       authenticatorData: req.body.response.authenticatorData,
       signature: req.body.response.signature,
-      "account-seal": user.wallet.accountSeal,
+      "account-seal": user.wallet.accountSeal, //8. account seal will be the one of the payment wallet, get from FE
       "account-type": 0,
       chainId: toCanonicalHex(chainId),
       delegationAddress: toCanonicalHex(delegationAddress),
@@ -1107,7 +1171,7 @@ app.post("/eip7702transaction", async (req, res) => {
 
     // Get fee data and check balance with retry logic
     const feeData = await provider.getFeeData();
-    const balance = await getBalanceWithRetry(provider, fromAddress);
+    const balance = await getBalanceWithRetry(provider, fromAddress); //9. from addresses will be the sender addresses
 
     // Use more conservative gas settings
     const maxPriorityFeePerGas =
@@ -1432,10 +1496,14 @@ app.post("/selfcall", async (req, res) => {
         .json({ error: "Invalid user or wallet not found" });
     }
 
+    // Validate RPC URL if provided
+    if (req.body.rpcUrl && !isValidUrl(req.body.rpcUrl)) {
+      return res.status(400).json({ error: "Invalid RPC URL format" });
+    }
+
     // Configuration
-    const chainId = req.body.chainId || 1;
-    const ALCHEMY_URL =
-      "https://mainnet.infura.io/v3/00904e37a5644a96be0e7ce44f71ba0f";
+    const chainId = req.body.chainId || 42161;
+    const ALCHEMY_URL = req.body.rpcUrl || "https://arb1.arbitrum.io/rpc";
     const selfAddress = "0x" + user.wallet.ethereumAddress; // This is now the delegated smart contract
     const fromAddress = selfAddress; // We're calling from the same address
 
@@ -1443,8 +1511,8 @@ app.post("/selfcall", async (req, res) => {
 
     // Setup provider
     const provider = new ethers.JsonRpcProvider(ALCHEMY_URL, {
-      chainId: 1,
-      name: "mainnet",
+      chainId: 42161,
+      name: "arbitrum",
     });
 
     // Fetch blockchain data in parallel
@@ -1774,12 +1842,14 @@ app.post("/createTransaction", async (req, res) => {
     return res.status(400).json({ error: "Invalid user or wallet not found" });
   }
 
+  // Validate RPC URL if provided
+  if (req.body.rpcUrl && !isValidUrl(req.body.rpcUrl)) {
+    return res.status(400).json({ error: "Invalid RPC URL format" });
+  }
+
   try {
-    const chainId = 1; // Arbitrum Mainnet
-    const ALCHEMY_URL =
-      // "https://arb-mainnet.g.alchemy.com/v2/LoyiQqdGjjR-z88vsuA0WofB-5i2r2UD";
-      "https://mainnet.infura.io/v3/00904e37a5644a96be0e7ce44f71ba0f";
-    // "http://localhost:8545";
+    const chainId = 42161; // Arbitrum One
+    const ALCHEMY_URL = req.body.rpcUrl || "https://arb1.arbitrum.io/rpc";
 
     // Get user's Ethereum address from wallet
     const fromAddress = "0x" + user.wallet.ethereumAddress;
@@ -1823,6 +1893,7 @@ app.post("/createTransaction", async (req, res) => {
       value: toBuffer(new BN("120000000")),
       data: Buffer.alloc(0),
     };
+
     // RLP encode transaction
     const rawTx = [
       txParams.nonce,
@@ -1837,6 +1908,9 @@ app.post("/createTransaction", async (req, res) => {
     ];
 
     const rlpEncoded = rlp.encode(rawTx);
+
+    console.log("RLP encoded TX (hex):", rlpEncoded.toString("hex"));
+
     const msgHash = keccak256(Buffer.from(rlpEncoded));
 
     const msgHashBase64Url = msgHash
@@ -2038,8 +2112,27 @@ app.post("/createTransaction", async (req, res) => {
   }
 });
 
-app.listen(3000, () => {
-  console.log("Server is running on http://localhost:3000");
+async function codeAt() {
+  try {
+    const chainId = 42161; // Arbitrum Mainnet
+    const ALCHEMY_URL =
+      "https://arb-mainnet.g.alchemy.com/v2/LoyiQqdGjjR-z88vsuA0WofB-5i2r2UD";
+
+    const address = "0x5ae6d77df59bdb0924f4affe87d57283628197e9";
+    const { data } = await axios.post(ALCHEMY_URL, {
+      jsonrpc: "2.0",
+      method: "eth_getCode",
+      params: [address],
+      id: 2,
+    });
+    console.log("data", data);
+  } catch (e) {}
+}
+
+codeAt();
+
+app.listen(3001, () => {
+  console.log("Server is running on http://localhost:3001");
 });
 
 // async function estimateGasLimit(provider, authorizationData, calldata, fromAddress) {

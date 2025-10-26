@@ -12,6 +12,7 @@ const eipTxButton = document.querySelector("[data-eip-transaction]");
 const selfcallButton = document.querySelector("[data-selfcall]");
 
 const emailInput = document.querySelector("[data-email]");
+const rpcUrlInput = document.querySelector("[data-rpc-url]");
 const modal = document.querySelector("[data-modal]");
 const closeButton = document.querySelector("[data-close]");
 
@@ -31,7 +32,7 @@ const protocol = window.location.protocol;
 // Set SERVER_URL dynamically
 const SERVER_URL =
   currentHostname === "localhost" || currentHostname === "127.0.0.1"
-    ? `${protocol}//localhost:3000`
+    ? `${protocol}//localhost:3001`
     : `${protocol}//${currentHostname}:5619`; // Backend on port 5619 in production/staging
 
 async function signup() {
@@ -42,10 +43,14 @@ async function signup() {
     `${SERVER_URL}/init-register?email=${email}`,
     { credentials: "include" }
   );
-  const options = await initResponse.json();
+
+  console.log("initResponse", initResponse);
   if (!initResponse.ok) {
-    showModalText(options.error);
+    const errorData = await initResponse.json();
+    showModalText(errorData.error || "Failed to initialize registration");
+    return;
   }
+  const options = await initResponse.json();
 
   // 2. Create passkey
   const registrationJSON = await startRegistration(options); // navigator.credentials.create()
@@ -79,10 +84,12 @@ async function login() {
   const initResponse = await fetch(`${SERVER_URL}/init-auth?email=${email}`, {
     credentials: "include",
   });
-  const options = await initResponse.json();
   if (!initResponse.ok) {
-    showModalText(options.error);
+    const errorData = await initResponse.json();
+    showModalText(errorData.error || "Failed to initialize authentication");
+    return;
   }
+  const options = await initResponse.json();
 
   // 2. Get passkey
   const authJSON = await startAuthentication(options);
@@ -122,7 +129,9 @@ async function createwallet() {
   );
 
   if (!initResponse.ok) {
-    showModalText(options.error);
+    const errorData = await initResponse.json();
+    showModalText(errorData.error || "Failed to initialize wallet creation");
+    return;
   }
   const options = await initResponse.json();
   const authJSON = await startAuthentication(options);
@@ -147,6 +156,7 @@ async function createwallet() {
 
 async function enableDelegate() {
   const email = emailInput.value;
+  const rpcUrl = rpcUrlInput.value;
 
   const initResponse = await fetch(
     `${SERVER_URL}/initCreateTransaction?email=${email}`,
@@ -154,10 +164,12 @@ async function enableDelegate() {
       credentials: "include",
     }
   );
-  const options = await initResponse.json();
   if (!initResponse.ok) {
-    showModalText(options.error);
+    const errorData = await initResponse.json();
+    showModalText(errorData.error || "Failed to initialize transaction");
+    return;
   }
+  const options = await initResponse.json();
   const authJSON = await startAuthentication(options);
   console.log("authJSON", authJSON);
 
@@ -167,16 +179,26 @@ async function enableDelegate() {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(authJSON),
+    body: JSON.stringify({ ...authJSON, rpcUrl }),
   });
 
-  if (sgxResponse.success) {
-    showModalText(`Transaction hash: ${sgxResponse.hash}`);
+  const sgxData = await sgxResponse.json();
+
+  if (!sgxResponse.ok) {
+    showModalText(sgxData.error || "Enable delegate failed");
+    return;
+  }
+
+  if (sgxData.delegate) {
+    showModalText(`Delegate data: ${sgxData.delegate}`);
+  } else {
+    showModalText("Enable delegate completed");
   }
 }
 
 async function eipTx() {
   const email = emailInput.value;
+  const rpcUrl = rpcUrlInput.value;
 
   const initResponse = await fetch(
     `${SERVER_URL}/initCreateTransaction?email=${email}`,
@@ -184,10 +206,12 @@ async function eipTx() {
       credentials: "include",
     }
   );
-  const options = await initResponse.json();
   if (!initResponse.ok) {
-    showModalText(options.error);
+    const errorData = await initResponse.json();
+    showModalText(errorData.error || "Failed to initialize transaction");
+    return;
   }
+  const options = await initResponse.json();
   const authJSON = await startAuthentication(options);
   console.log("authJSON", authJSON);
 
@@ -197,7 +221,7 @@ async function eipTx() {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(authJSON),
+    body: JSON.stringify({ ...authJSON, rpcUrl }),
   });
 
   if (sgxResponse.success) {
@@ -207,6 +231,7 @@ async function eipTx() {
 
 async function selfcall() {
   const email = emailInput.value;
+  const rpcUrl = rpcUrlInput.value;
 
   const initResponse = await fetch(
     `${SERVER_URL}/initCreateTransaction?email=${email}`,
@@ -214,10 +239,12 @@ async function selfcall() {
       credentials: "include",
     }
   );
-  const options = await initResponse.json();
   if (!initResponse.ok) {
-    showModalText(options.error);
+    const errorData = await initResponse.json();
+    showModalText(errorData.error || "Failed to initialize transaction");
+    return;
   }
+  const options = await initResponse.json();
   const authJSON = await startAuthentication(options);
   console.log("authJSON", authJSON);
 
@@ -227,7 +254,7 @@ async function selfcall() {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(authJSON),
+    body: JSON.stringify({ ...authJSON, rpcUrl }),
   });
 
   if (sgxResponse.success) {
@@ -237,6 +264,7 @@ async function selfcall() {
 
 async function sendTransaction() {
   const email = emailInput.value;
+  const rpcUrl = rpcUrlInput.value;
 
   const initResponse = await fetch(
     `${SERVER_URL}/initCreateTransaction?email=${email}`,
@@ -244,10 +272,12 @@ async function sendTransaction() {
       credentials: "include",
     }
   );
-  const options = await initResponse.json();
   if (!initResponse.ok) {
-    showModalText(options.error);
+    const errorData = await initResponse.json();
+    showModalText(errorData.error || "Failed to initialize transaction");
+    return;
   }
+  const options = await initResponse.json();
   const authJSON = await startAuthentication(options);
   console.log("authJSON", authJSON);
 
@@ -257,11 +287,20 @@ async function sendTransaction() {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(authJSON),
+    body: JSON.stringify({ ...authJSON, rpcUrl }),
   });
 
-  if (sgxResponse.success) {
-    showModalText(`Transaction hash: ${sgxResponse.hash}`);
+  const sgxData = await sgxResponse.json();
+
+  if (!sgxResponse.ok) {
+    showModalText(sgxData.error || "Transaction failed");
+    return;
+  }
+
+  if (sgxData.success) {
+    showModalText(`Transaction hash: ${sgxData.hash}`);
+  } else {
+    showModalText("Transaction failed");
   }
 }
 
