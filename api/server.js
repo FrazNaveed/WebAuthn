@@ -933,49 +933,46 @@ function bigIntToBuffer(value) {
 // 2. make a copy and rename it with eip7702PaymentWithdrawalTxn
 // 3.
 app.post("/eip7702transaction", async (req, res) => {
-  // Helper function to convert values to canonical hex format
-  const toCanonicalHex = (value) => {
-    if (value === 0 || value === "0" || value === "0x0" || value === "0x") {
-      return "0x";
+  // Helper function to create canonical RLP buffers (no leading zeros)
+  const toRLPBuffer = (value) => {
+    // Handle zero values
+    if (value === 0 || value === "0" || value === "0x" || value === "0x0" || value === 0n) {
+      return Buffer.alloc(0); // Empty buffer for zero
     }
 
+    // Convert to hex string
     let hex;
     if (typeof value === "string" && value.startsWith("0x")) {
       hex = value.slice(2);
+    } else if (typeof value === "bigint") {
+      hex = value.toString(16);
     } else if (typeof value === "number") {
       hex = value.toString(16);
     } else {
       hex = value.toString();
     }
 
-    // Remove leading zeros but keep at least one digit
-    hex = hex.replace(/^0+/, "") || "0";
-    return "0x" + hex;
+    // Remove all leading zeros
+    hex = hex.replace(/^0+/, "");
+    
+    // If we removed everything, it was zero
+    if (hex === "") {
+      return Buffer.alloc(0);
+    }
+
+    // Ensure even length
+    if (hex.length % 2 !== 0) {
+      hex = "0" + hex;
+    }
+
+    return Buffer.from(hex, "hex");
   };
 
   // Fixed helper function to ensure proper 32-byte signature components
   const toFixed32ByteHex = (buffer) => {
     const hex = buffer.toString("hex");
-    // Pad to 64 characters (32 bytes) if needed
     const paddedHex = hex.padStart(64, "0");
     return "0x" + paddedHex;
-  };
-
-  // Helper function to estimate gas limit
-  const estimateGasLimit = async (
-    provider,
-    txData,
-    authorizationData,
-    calldata,
-    fromAddress
-  ) => {
-    try {
-      // Implementation would go here - placeholder for now
-      return 1000000; // Default gas limit
-    } catch (error) {
-      console.error("Gas estimation failed:", error);
-      return 1000000; // Fallback gas limit
-    }
   };
 
   // Helper function to get balance with retry logic
@@ -983,14 +980,12 @@ app.post("/eip7702transaction", async (req, res) => {
     for (let i = 0; i < maxRetries; i++) {
       try {
         const balance = await provider.getBalance(address);
-        console.log(
-          `Balance check attempt ${i + 1}: ${ethers.formatEther(balance)} ETH`
-        );
+        console.log(`Balance check attempt ${i + 1}: ${ethers.formatEther(balance)} ETH`);
         return balance;
       } catch (error) {
         console.error(`Balance check attempt ${i + 1} failed:`, error.message);
         if (i === maxRetries - 1) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
   };
@@ -1004,9 +999,7 @@ app.post("/eip7702transaction", async (req, res) => {
 
     const user = getUserById(authInfo.userId);
     if (!user || !user.wallet || user.passKey.id !== req.body.id) {
-      return res
-        .status(400)
-        .json({ error: "Invalid user or wallet not found" });
+      return res.status(400).json({ error: "Invalid user or wallet not found" });
     }
 
     // Validate RPC URL if provided
@@ -1018,8 +1011,6 @@ app.post("/eip7702transaction", async (req, res) => {
     const chainId = req.body.chainId || 42161;
     const ALCHEMY_URL = req.body.rpcUrl || "https://arb1.arbitrum.io/rpc";
     const fromAddress = "0x" + user.wallet.ethereumAddress;
-
-    // 3. this delegation address will the new eip 7702 we made
     const delegationAddress = "0x69007702764179f14F51cdce752f4f775d74E139";
 
     if (!delegationAddress) {
@@ -1030,8 +1021,7 @@ app.post("/eip7702transaction", async (req, res) => {
 
     console.log("From address:", fromAddress);
 
-    // Setup provider first
-    //4. accept via api body, set in input field FE
+    // Setup provider
     const provider = new ethers.JsonRpcProvider(ALCHEMY_URL, {
       chainId: 42161,
       name: "arbitrum",
@@ -1074,13 +1064,6 @@ app.post("/eip7702transaction", async (req, res) => {
       "function execute(address target, uint256 value, bytes calldata data)",
     ]);
 
-    // const batchInterface = new ethers.Interface([
-    //   "function execute(tuple(bytes data, address to, uint256 value)[] calls)"
-    // ]);
-
-    //5. in data we will encode the transfer function of usdc contract
-    // 6. to will be the usdc contract address,
-    // 7. value will be 0, no eth transfer
     const calls = [
       {
         data: "0x",
@@ -1095,18 +1078,16 @@ app.post("/eip7702transaction", async (req, res) => {
       calls[0].data,
     ]);
 
-    // const calldata = batchInterface.encodeFunctionData("execute", [calls]);
-
     // Step 1: Get authorization signature from SGX
     const authMessageBody = {
       clientDataJSON: req.body.response.clientDataJSON,
       authenticatorData: req.body.response.authenticatorData,
       signature: req.body.response.signature,
-      "account-seal": user.wallet.accountSeal, //8. account seal will be the one of the payment wallet, get from FE
+      "account-seal": user.wallet.accountSeal,
       "account-type": 0,
-      chainId: toCanonicalHex(chainId),
-      delegationAddress: toCanonicalHex(delegationAddress),
-      nonce: toCanonicalHex(currentNonce + 1),
+      chainId: ethers.toBeHex(chainId),
+      delegationAddress: delegationAddress,
+      nonce: ethers.toBeHex(currentNonce + 1),
     };
 
     const sgxAuthResponse = await axios.post(
@@ -1125,139 +1106,81 @@ app.post("/eip7702transaction", async (req, res) => {
       ["0x", sgxAuthResponse.data.rlp_encoded_auth_list.slice(2)].join("")
     );
 
-    // Process authorization signature with fixed padding
+    // Process authorization signature
     const base64AuthSig = sgxAuthResponse.data.auth_list_signa
       .replace(/-/g, "+")
       .replace(/_/g, "/");
-    const paddedAuthSig =
-      base64AuthSig + "=".repeat((4 - (base64AuthSig.length % 4)) % 4);
+    const paddedAuthSig = base64AuthSig + "=".repeat((4 - (base64AuthSig.length % 4)) % 4);
     const authSigBuffer = Buffer.from(paddedAuthSig, "base64");
 
     if (authSigBuffer.length !== 65) {
-      throw new Error(
-        `Invalid authorization signature length: ${authSigBuffer.length}, expected 65`
-      );
+      throw new Error(`Invalid authorization signature length: ${authSigBuffer.length}, expected 65`);
     }
 
     const authR = authSigBuffer.subarray(0, 32);
     const authS = authSigBuffer.subarray(32, 64);
     const authRecoveryId = authSigBuffer[64];
 
-    // Use fixed 32-byte hex conversion to prevent missing digits
     const authRHex = toFixed32ByteHex(authR);
     const authSHex = toFixed32ByteHex(authS);
 
     console.log("Auth signature components:");
     console.log("- Recovery ID:", authRecoveryId);
-    console.log("- r length:", authRHex.length, "value:", authRHex);
-    console.log("- s length:", authSHex.length, "value:", authSHex);
+    console.log("- r:", authRHex);
+    console.log("- s:", authSHex);
 
-    // Validate signature component lengths
-    if (authRHex.length !== 66 || authSHex.length !== 66) {
-      // 0x + 64 hex chars
-      throw new Error(
-        `Invalid signature component length: r=${authRHex.length}, s=${authSHex.length}, expected 66 each`
-      );
-    }
-
-    const authorizationData = {
-      chainId: _chainId,
-      address: _delegateToAddress,
-      nonce: _nonce,
-      yParity: authRecoveryId === 0 ? "0x" : "0x01",
-      r: authRHex,
-      s: authSHex,
-    };
-
-    // Get fee data and check balance with retry logic
+    // Get fee data and check balance
     const feeData = await provider.getFeeData();
-    const balance = await getBalanceWithRetry(provider, fromAddress); //9. from addresses will be the sender addresses
+    const balance = await getBalanceWithRetry(provider, fromAddress);
 
-    // Use more conservative gas settings
-    const maxPriorityFeePerGas =
-      feeData.maxPriorityFeePerGas || ethers.parseUnits("2", "gwei");
-    const maxFeePerGas =
-      feeData.maxFeePerGas || ethers.parseUnits("30", "gwei");
-    const gasLimit = 200000n; // Increased gas limit for EIP-7702 transactions
+    const maxPriorityFeePerGas = feeData.maxPriorityFeePerGas || ethers.parseUnits("2", "gwei");
+    const maxFeePerGas = feeData.maxFeePerGas || ethers.parseUnits("30", "gwei");
+    const gasLimit = 200000n;
 
     console.log("Gas settings:");
-    console.log(
-      "- Max Priority Fee:",
-      ethers.formatUnits(maxPriorityFeePerGas, "gwei"),
-      "gwei"
-    );
+    console.log("- Max Priority Fee:", ethers.formatUnits(maxPriorityFeePerGas, "gwei"), "gwei");
     console.log("- Max Fee:", ethers.formatUnits(maxFeePerGas, "gwei"), "gwei");
     console.log("- Gas Limit:", gasLimit.toString());
 
-    // Check account balance and calculate costs
     const valueTransfer = ethers.parseEther("0.00001");
     const estimatedGasCost = gasLimit * maxFeePerGas;
     const totalCost = estimatedGasCost + valueTransfer;
 
     console.log("Cost breakdown:");
     console.log("- Account balance:", ethers.formatEther(balance), "ETH");
-    console.log(
-      "- Gas cost estimate:",
-      ethers.formatEther(estimatedGasCost),
-      "ETH"
-    );
-    console.log("- Value transfer:", ethers.formatEther(valueTransfer), "ETH");
     console.log("- Total required:", ethers.formatEther(totalCost), "ETH");
-
-    if (balance === 0n) {
-      return res.status(400).json({
-        error: "Insufficient funds",
-        details: `Account ${fromAddress} has zero balance. Please fund the account before sending transactions.`,
-        balance: "0 ETH",
-      });
-    }
 
     if (balance < totalCost) {
       return res.status(400).json({
         error: "Insufficient funds",
-        details: `Balance: ${ethers.formatEther(
-          balance
-        )} ETH, Required: ${ethers.formatEther(totalCost)} ETH`,
-        balance: ethers.formatEther(balance) + " ETH",
-        required: ethers.formatEther(totalCost) + " ETH",
-        shortfall: ethers.formatEther(totalCost - balance) + " ETH",
+        details: `Balance: ${ethers.formatEther(balance)} ETH, Required: ${ethers.formatEther(totalCost)} ETH`,
       });
     }
 
-    // Build transaction data
+    // Build transaction data using RLP-safe buffers
     const txData = [
-      authorizationData.chainId,
-      ethers.toBeHex(currentNonce),
-      ethers.toBeHex(maxPriorityFeePerGas),
-      ethers.toBeHex(maxFeePerGas),
-      ethers.toBeHex(gasLimit),
-      fromAddress,
-      ethers.toBeHex(valueTransfer),
-      calldata,
-      [], // Access list
+      toRLPBuffer(chainId),
+      toRLPBuffer(currentNonce),
+      toRLPBuffer(maxPriorityFeePerGas),
+      toRLPBuffer(maxFeePerGas),
+      toRLPBuffer(gasLimit),
+      Buffer.from(fromAddress.slice(2), "hex"), // Address as buffer
+      toRLPBuffer(valueTransfer),
+      Buffer.from(calldata.slice(2), "hex"), // Calldata as buffer
+      [], // Access list (empty array)
       [
         [
-          // Authorization list
-          authorizationData.chainId,
-          authorizationData.address,
-          authorizationData.nonce,
-          authorizationData.yParity,
-          authorizationData.r,
-          authorizationData.s,
+          toRLPBuffer(chainId),
+          Buffer.from(_delegateToAddress.slice(2), "hex"),
+          toRLPBuffer(_nonce),
+          toRLPBuffer(authRecoveryId),
+          Buffer.from(authRHex.slice(2), "hex"),
+          Buffer.from(authSHex.slice(2), "hex"),
         ],
       ],
     ];
 
-    console.log("Transaction data structure:", {
-      chainId: authorizationData.chainId,
-      nonce: ethers.toBeHex(currentNonce),
-      maxPriorityFeePerGas: ethers.toBeHex(maxPriorityFeePerGas),
-      maxFeePerGas: ethers.toBeHex(maxFeePerGas),
-      gasLimit: ethers.toBeHex(gasLimit),
-      to: fromAddress,
-      value: ethers.toBeHex(valueTransfer),
-      authListLength: txData[9].length,
-    });
+    console.log("Transaction data prepared with canonical RLP encoding");
 
     // Encode transaction for signing
     const encodedTxData = ethers.concat([
@@ -1265,18 +1188,17 @@ app.post("/eip7702transaction", async (req, res) => {
       ethers.encodeRlp(txData),
     ]);
 
-    console.log("Encoded transaction data length:", encodedTxData.length);
     const txDataHash = ethers.keccak256(encodedTxData);
     console.log("Transaction hash for signing:", txDataHash);
 
     // Step 2: Get transaction signature from SGX
     const msgHashBase64Url = txDataHash
-      .slice(2) // Remove 0x prefix
-      .match(/.{2}/g) // Split into byte pairs
-      .map((byte) => String.fromCharCode(parseInt(byte, 16))) // Convert to characters
-      .join(""); // Join into string
+      .slice(2)
+      .match(/.{2}/g)
+      .map((byte) => String.fromCharCode(parseInt(byte, 16)))
+      .join("");
 
-    const msgHashBase64 = btoa(msgHashBase64Url) // Convert to base64
+    const msgHashBase64 = btoa(msgHashBase64Url)
       .replace(/\+/g, "-")
       .replace(/\//g, "_")
       .replace(/=+$/, "");
@@ -1304,72 +1226,48 @@ app.post("/eip7702transaction", async (req, res) => {
       throw new Error("Failed to get transaction signature from SGX");
     }
 
-    // Process transaction signature with fixed padding
+    // Process transaction signature
     const txSignature = sgxTxResponse.data.signature;
     const base64TxSig = txSignature.replace(/-/g, "+").replace(/_/g, "/");
-    const paddedTxSig =
-      base64TxSig + "=".repeat((4 - (base64TxSig.length % 4)) % 4);
+    const paddedTxSig = base64TxSig + "=".repeat((4 - (base64TxSig.length % 4)) % 4);
     const txSigBuffer = Buffer.from(paddedTxSig, "base64");
 
     if (txSigBuffer.length !== 65) {
-      throw new Error(
-        `Invalid transaction signature length: ${txSigBuffer.length}, expected 65`
-      );
+      throw new Error(`Invalid transaction signature length: ${txSigBuffer.length}, expected 65`);
     }
 
     const txR = txSigBuffer.subarray(0, 32);
     const txS = txSigBuffer.subarray(32, 64);
     const txRecoveryId = txSigBuffer[64];
 
-    // Use fixed 32-byte hex conversion
     const txRHex = toFixed32ByteHex(txR);
     const txSHex = toFixed32ByteHex(txS);
 
     console.log("TX signature components:");
     console.log("- Recovery ID:", txRecoveryId);
-    console.log("- r length:", txRHex.length, "value:", txRHex);
-    console.log("- s length:", txSHex.length, "value:", txSHex);
-
-    // Validate signature component lengths
-    if (txRHex.length !== 66 || txSHex.length !== 66) {
-      throw new Error(
-        `Invalid TX signature component length: r=${txRHex.length}, s=${txSHex.length}, expected 66 each`
-      );
-    }
+    console.log("- r:", txRHex);
+    console.log("- s:", txSHex);
 
     if (txRecoveryId > 1) {
       throw new Error(`Invalid recovery ID: ${txRecoveryId}`);
     }
 
-    // Create final signed transaction
+    // Create final signed transaction with RLP-safe buffers
+    const signedTxData = [
+      ...txData,
+      toRLPBuffer(txRecoveryId),
+      Buffer.from(txRHex.slice(2), "hex"),
+      Buffer.from(txSHex.slice(2), "hex"),
+    ];
+
     const signedTx = ethers.hexlify(
       ethers.concat([
         "0x04",
-        ethers.encodeRlp([
-          ...txData,
-          txRecoveryId === 0 ? "0x" : "0x01",
-          txRHex,
-          txSHex,
-        ]),
+        ethers.encodeRlp(signedTxData),
       ])
     );
 
-    // Final verification before sending
-    console.log("Final transaction verification:");
-    console.log("- From address:", fromAddress);
-    console.log("- Transaction length:", signedTx.length, "bytes");
-    console.log("- Final balance check...");
-
-    const finalBalance = await provider.getBalance(fromAddress);
-    console.log("- Current balance:", ethers.formatEther(finalBalance), "ETH");
-
-    if (finalBalance < totalCost) {
-      throw new Error(
-        `Insufficient funds at final check: ${ethers.formatEther(
-          finalBalance
-        )} ETH < ${ethers.formatEther(totalCost)} ETH required`
-      );
-    }
+    console.log("Final signed transaction length:", signedTx.length);
 
     // Send transaction to network
     const txHash = await provider.send("eth_sendRawTransaction", [signedTx]);
@@ -1385,20 +1283,14 @@ app.post("/eip7702transaction", async (req, res) => {
   } catch (error) {
     console.error("EIP-7702 transaction error:", error);
 
-    // Provide more specific error handling
     let errorMessage = "Failed to process EIP-7702 transaction";
     let errorDetails = error.message;
 
     if (error.code === "INSUFFICIENT_FUNDS") {
       errorMessage = "Insufficient funds for transaction";
-      errorDetails =
-        "Account balance is insufficient to cover gas costs and value transfer";
-    } else if (error.code === "INVALID_ARGUMENT") {
-      errorMessage = "Invalid transaction data";
-      errorDetails = "Transaction encoding failed - check signature components";
-    } else if (error.message.includes("nonce")) {
-      errorMessage = "Invalid transaction nonce";
-      errorDetails = "Transaction nonce conflict - try again";
+    } else if (error.message.includes("rlp")) {
+      errorMessage = "RLP encoding error";
+      errorDetails = "Transaction data encoding failed - " + error.message;
     }
 
     return res.status(500).json({
